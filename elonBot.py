@@ -1,9 +1,10 @@
 import yfinance as yf
 import requests
+import os
 
-# 🔑 ใส่ของคุณ
-TOKEN = "mWpGyZrXE2G32qHdReoY0nFlXqAoPlb853Pl3leGuCu4mR0SKTzB9cwa/m4vSy+jdOpYzMpEqpsGDQvSZRrDkkL3xLFInsy7nEKExk8aC2pKTONgd+QusfpiIjj0DmgccZiZg3ZjPpeICEiTfltgRgdB04t89/1O/w1cDnyilFU="
-USER_ID = "U2e2fadff5fb002c8110dcdf38e0bc2c3"
+TOKEN = os.getenv("vCXZ86AlBkXZ8Wd+Nag+qO+n6jeHPZLSdc7BINgjABPESF3mpr2+XaRQO9SuL/SddOpYzMpEqpsGDQvSZRrDkkL3xLFInsy7nEKExk8aC2qQs2Ft5V9hSaN9krpHhcS8TiQ7GaB0g/04tLTdWUkr/QdB04t89/1O/w1cDnyilFU=")
+USER_ID = os.getenv("U2e2fadff5fb002c8110dcdf38e0bc2c3")
+
 
 # 📊 พอร์ตของคุณ (ใส่ % กำไร/ขาดทุน)
 portfolio = {
@@ -26,36 +27,37 @@ recommend = ""
 risk_alert = ""
 
 for symbol, profit in portfolio.items():
-    stock = yf.Ticker(symbol)
-    data = stock.history(period="2d")
+    try:
+        stock = yf.Ticker(symbol)
+        data = stock.history(period="2d")
 
-    if len(data) < 2:
-        continue
+        if len(data) < 2:
+            continue
 
-    today = data["Close"].iloc[-1]
-    yesterday = data["Close"].iloc[-2]
+        today = data["Close"].iloc[-1]
+        yesterday = data["Close"].iloc[-2]
 
-    change = today - yesterday
-    percent = (change / yesterday) * 100
+        change = today - yesterday
+        percent = (change / yesterday) * 100
 
-    line = f"{symbol}: {today:.2f} ({percent:+.2f}%) | พอร์ต {profit:+.2f}%"
+        line = f"{symbol}: {today:.2f} ({percent:+.2f}%) | พอร์ต {profit:+.2f}%"
 
-    # 🔻 ลงแรงวันนี้
-    if percent < -3:
-        line += " 🔻"
-        recommend += f"{symbol} ลงแรงวันนี้ อาจน่าสนใจ\n"
+        if percent < -3:
+            line += " 🔻"
+            recommend += f"{symbol} ลงแรงวันนี้ อาจน่าสนใจ\n"
 
-    # ⚠️ ขาดทุนหนักในพอร์ต
-    if profit < -20:
-        line += " ⚠️ เสี่ยง"
-        risk_alert += f"{symbol} ขาดทุนหนัก {profit}%\n"
+        if profit < -20:
+            line += " ⚠️ เสี่ยง"
+            risk_alert += f"{symbol} ขาดทุนหนัก {profit}%\n"
 
-    # 🔥 กำไรสูง
-    if profit > 10:
-        line += " 🔥"
-        recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
+        if profit > 10:
+            line += " 🔥"
+            recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
 
-    message_text += line + "\n"
+        message_text += line + "\n"
+
+    except Exception as e:
+        message_text += f"{symbol}: error\n"
 
 # 🧠 สรุป
 if recommend:
@@ -83,6 +85,11 @@ data = {
 }
 
 response = requests.post(url, headers=headers, json=data)
+
+if response.status_code != 200:
+    print("❌ ส่งไม่สำเร็จ:", response.text)
+else:
+    print("✅ ส่งสำเร็จ")
 
 print(response.status_code)
 print(response.text)
