@@ -23,7 +23,7 @@ jobs:
         run: pip install yfinance requests
 
       - name: Run bot
-        run: python main.py
+        run: python elonBot.py
         env:
             LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
 
