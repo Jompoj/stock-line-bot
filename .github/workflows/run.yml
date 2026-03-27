@@ -24,3 +24,11 @@ jobs:
 
       - name: Run bot
         run: python main.py
+        env:
+            LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+
+
+
+
+
+        
