@@ -2,11 +2,9 @@ import yfinance as yf
 import requests
 import os
 
-TOKEN = os.getenv("vCXZ86AlBkXZ8Wd+Nag+qO+n6jeHPZLSdc7BINgjABPESF3mpr2+XaRQO9SuL/SddOpYzMpEqpsGDQvSZRrDkkL3xLFInsy7nEKExk8aC2qQs2Ft5V9hSaN9krpHhcS8TiQ7GaB0g/04tLTdWUkr/QdB04t89/1O/w1cDnyilFU=")
-USER_ID = os.getenv("U2e2fadff5fb002c8110dcdf38e0bc2c3")
+TOKEN = os.getenv("LINE_TOKEN")
+USER_ID = os.getenv("LINE_USER_ID")
 
-
-# 📊 พอร์ตของคุณ (ใส่ % กำไร/ขาดทุน)
 portfolio = {
     "NVDA": -1.95,
     "JNJ": -2.45,
@@ -22,7 +20,6 @@ portfolio = {
 }
 
 message_text = "📊 สรุปพอร์ต + หุ้นวันนี้\n\n"
-
 recommend = ""
 risk_alert = ""
 
@@ -57,39 +54,33 @@ for symbol, profit in portfolio.items():
         message_text += line + "\n"
 
     except Exception as e:
-        message_text += f"{symbol}: error\n"
+        message_text += f"{symbol}: error ({e})\n"
 
-# 🧠 สรุป
+# สรุป
 if recommend:
     message_text += "\n🧠 แนะนำ:\n" + recommend
 
 if risk_alert:
     message_text += "\n⚠️ ความเสี่ยง:\n" + risk_alert
 
-# 📩 ส่งเข้า LINE
+# ส่ง LINE
 url = "https://api.line.me/v2/bot/message/push"
-
 headers = {
     "Authorization": f"Bearer {TOKEN}",
     "Content-Type": "application/json"
 }
-
 data = {
     "to": USER_ID,
-    "messages": [
-        {
-            "type": "text",
-            "text": message_text
-        }
-    ]
+    "messages": [{"type": "text", "text": message_text}]
 }
 
-response = requests.post(url, headers=headers, json=data)
+try:
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code != 200:
+        print("❌ ส่งไม่สำเร็จ:", response.text)
+    else:
+        print("✅ ส่งสำเร็จ")
+except Exception as e:
+    print("❌ เกิดข้อผิดพลาดตอนส่ง LINE:", e)
 
-if response.status_code != 200:
-    print("❌ ส่งไม่สำเร็จ:", response.text)
-else:
-    print("✅ ส่งสำเร็จ")
-
-print(response.status_code)
-print(response.text)
+print(response.status_code if 'response' in locals() else "No response")
