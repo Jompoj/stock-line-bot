@@ -28,25 +28,22 @@ def analyze_sentiment(news_list):
     sentiment = "📈 บวก" if score > 1 else "📉 ลบ" if score < -1 else "➖ กลาง"
     return sentiment, score
 
+
 def generate_signal(percent, score, profit):
     total_score = 0
 
-    # 📊 ราคา
     if percent > 2:
         total_score += 2
     elif percent < -2:
         total_score -= 2
 
-    # 📰 ข่าว
     total_score += score
 
-    # 💼 พอร์ต
     if profit > 10:
-        total_score -= 1  # ใกล้จุดขาย
+        total_score -= 1
     elif profit < -10:
-        total_score += 1  # อาจรีบาว
+        total_score += 1
 
-    # 🎯 ตัดสิน
     if total_score >= 3:
         return "🔥 Strong Buy", total_score
     elif total_score <= -3:
@@ -57,6 +54,8 @@ def generate_signal(percent, score, profit):
         return "📉 Sell Bias", total_score
     else:
         return "➡️ Neutral", total_score
+
+
 # 📰 ดึงข่าว
 def get_news(symbol):
     try:
@@ -79,6 +78,7 @@ USER_ID = os.getenv("LINE_USER_ID")
 if not TOKEN or not USER_ID:
     raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า")
 
+
 portfolio = {
     "NVDA": -1.95,
     "JNJ": -2.45,
@@ -96,11 +96,13 @@ portfolio = {
 message_text = "📊 AI วิเคราะห์หุ้น (ข่าว + ราคา)\n\n"
 recommend = ""
 risk_alert = ""
+results = []   # 🔥 สำหรับ top picks
+
 
 for symbol, profit in portfolio.items():
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period="2d")
+        data = stock.history(period="7d")
 
         if len(data) < 2:
             continue
@@ -111,13 +113,15 @@ for symbol, profit in portfolio.items():
         change = today - yesterday
         percent = (change / yesterday) * 100
 
+        # 📊 trend
+        ma5 = data["Close"].tail(5).mean()
+        trend = "📈 ขาขึ้น" if today > ma5 else "📉 ขาลง"
+
         # 📰 ข่าว
         news_list = get_news(symbol)
-
-        # 🧠 sentiment
         sentiment, score = analyze_sentiment(news_list)
 
-        # 🔥 fallback ถ้าไม่มีข่าว (สำคัญมาก)
+        # fallback
         if not news_list:
             if percent > 1:
                 sentiment = "📈 บวก"
@@ -129,26 +133,24 @@ for symbol, profit in portfolio.items():
                 sentiment = "➖ กลาง"
                 score = 0
 
-        # 🔍 debug (ดูใน GitHub log)
-        print(symbol, "news:", news_list)
         print(symbol, "score:", score)
 
-        # 🔥 signal จาก AI
+        # 🔥 AI signal
         signal, total_score = generate_signal(percent, score, profit)
-        
-        # 🧠 analysis (ใส่กลับมา)
-        if score > 2:
-            analysis = "ข่าวหนุนแรง มี momentum"
-        elif score < -2:
-            analysis = "ข่าวกดดัน เสี่ยงลงต่อ"
+
+        # 🧠 analysis
+        if score > 2 and percent > 1:
+            analysis = "ข่าวแรง + ราคาขึ้น"
+        elif score < -2 and percent < -1:
+            analysis = "ข่าวลบ + ราคาลง"
         elif percent > 2:
-            analysis = "ราคาขึ้น แต่ข่าวยังไม่ชัด"
+            analysis = "แรงซื้อเข้า"
         elif percent < -2:
-            analysis = "ราคาลง ต้องระวัง"
+            analysis = "แรงขายออก"
         else:
             analysis = "รอดูทิศทาง"
-        
-        # 🧠 insight (ต้องอยู่ใน try!!)
+
+        # 🧠 insight
         if total_score >= 3:
             insight = "มีแรงซื้อ + ข่าวสนับสนุน"
         elif total_score <= -3:
@@ -159,22 +161,22 @@ for symbol, profit in portfolio.items():
             insight = "ข่าวเริ่มเป็นลบ"
         else:
             insight = "ตลาดยังไม่เลือกทาง"
-        
-        # 📊 format (ต้อง indent อยู่ใน try)
-        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
-        พอร์ต: {profit:+.2f}%
-        {sentiment} (news {score}) | {signal} ({total_score})
-        🧠 {analysis}
-        📌 {insight}
-        """
 
-        # 📊 format
+        # 📊 text
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
-        พอร์ต: {profit:+.2f}%
-        {sentiment} (news {score}) | {signal} ({total_score})
-        🧠 {analysis}
-        📌 {insight}
-        """
+พอร์ต: {profit:+.2f}%
+{sentiment} (news {score}) | {signal} ({total_score})
+🧠 {analysis} | {trend}
+📌 {insight}
+"""
+
+        message_text += line + "\n"
+
+        # 🔥 เก็บไว้จัดอันดับ
+        results.append({
+            "symbol": symbol,
+            "score": total_score
+        })
 
         # 📌 แนะนำ
         if score > 2 and profit < 0:
@@ -186,10 +188,17 @@ for symbol, profit in portfolio.items():
         if profit > 15:
             recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
 
-        message_text += line + "\n"
-
     except Exception as e:
         message_text += f"{symbol}: error ({e})\n"
+
+
+# 🔥 Top picks
+top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
+
+message_text += "\n🔥 ตัวน่าสนใจ:\n"
+for i, s in enumerate(top, 1):
+    message_text += f"{i}. {s['symbol']} (score {s['score']})\n"
+
 
 # 🧠 สรุป
 if recommend:
@@ -197,6 +206,7 @@ if recommend:
 
 if risk_alert:
     message_text += "\n⚠️ ความเสี่ยง:\n" + risk_alert
+
 
 # 📩 ส่ง LINE
 url = "https://api.line.me/v2/bot/message/push"
@@ -211,11 +221,6 @@ data = {
 
 try:
     response = requests.post(url, headers=headers, json=data)
-    if response.status_code != 200:
-        print("❌ ส่งไม่สำเร็จ:", response.text)
-    else:
-        print("✅ ส่งสำเร็จ")
+    print("✅ ส่งสำเร็จ" if response.status_code == 200 else response.text)
 except Exception as e:
     print("❌ error:", e)
-
-print(response.status_code if 'response' in locals() else "No response")
