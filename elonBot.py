@@ -147,16 +147,16 @@ for symbol, profit in portfolio.items():
 
         # 🧠 analysis
         # 🧠 insight แบบ repo
-if total_score >= 3:
-    insight = "มีแรงซื้อ + ข่าวสนับสนุน"
-elif total_score <= -3:
-    insight = "แรงขาย + sentiment ลบ"
-elif score > 0:
-    insight = "ข่าวเริ่มเป็นบวก"
-elif score < 0:
-    insight = "ข่าวเริ่มเป็นลบ"
-else:
-    insight = "ตลาดยังไม่เลือกทาง"
+        if total_score >= 3:
+            insight = "มีแรงซื้อ + ข่าวสนับสนุน"
+        elif total_score <= -3:
+            insight = "แรงขาย + sentiment ลบ"
+        elif score > 0:
+            insight = "ข่าวเริ่มเป็นบวก"
+        elif score < 0:
+            insight = "ข่าวเริ่มเป็นลบ"
+        else:
+            insight = "ตลาดยังไม่เลือกทาง"
 
         # 📊 format
     line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
