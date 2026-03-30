@@ -133,20 +133,22 @@ for symbol, profit in portfolio.items():
         print(symbol, "news:", news_list)
         print(symbol, "score:", score)
 
+        # 🔥 signal จาก AI
         signal, total_score = generate_signal(percent, score, profit)
-        if percent > 2 and score > 0:
-            signal = "🔥 Strong Buy"
-        elif percent < -3 and score < 0:
-            signal = "⚠️ Strong Risk"
-        elif score > 0:
-            signal = "📈 Positive Bias"
-        elif score < 0:
-            signal = "📉 Negative Bias"
+        
+        # 🧠 analysis (ใส่กลับมา)
+        if score > 2:
+            analysis = "ข่าวหนุนแรง มี momentum"
+        elif score < -2:
+            analysis = "ข่าวกดดัน เสี่ยงลงต่อ"
+        elif percent > 2:
+            analysis = "ราคาขึ้น แต่ข่าวยังไม่ชัด"
+        elif percent < -2:
+            analysis = "ราคาลง ต้องระวัง"
         else:
-            signal = "➡️ Neutral"
-
-        # 🧠 analysis
-        # 🧠 insight แบบ repo
+            analysis = "รอดูทิศทาง"
+        
+        # 🧠 insight (ต้องอยู่ใน try!!)
         if total_score >= 3:
             insight = "มีแรงซื้อ + ข่าวสนับสนุน"
         elif total_score <= -3:
@@ -157,14 +159,22 @@ for symbol, profit in portfolio.items():
             insight = "ข่าวเริ่มเป็นลบ"
         else:
             insight = "ตลาดยังไม่เลือกทาง"
+        
+        # 📊 format (ต้อง indent อยู่ใน try)
+        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+        พอร์ต: {profit:+.2f}%
+        {sentiment} (news {score}) | {signal} ({total_score})
+        🧠 {analysis}
+        📌 {insight}
+        """
 
         # 📊 format
-    line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
-พอร์ต: {profit:+.2f}%
-{sentiment} (news {score}) | {signal} ({total_score})
-🧠 {analysis}
-📌 {insight}
-"""
+        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+        พอร์ต: {profit:+.2f}%
+        {sentiment} (news {score}) | {signal} ({total_score})
+        🧠 {analysis}
+        📌 {insight}
+        """
 
         # 📌 แนะนำ
         if score > 2 and profit < 0:
