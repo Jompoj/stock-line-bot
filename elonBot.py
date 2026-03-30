@@ -2,20 +2,51 @@ import yfinance as yf
 import requests
 import os
 
-# 🧠 sentiment แบบง่าย (เริ่มต้นก่อน)
-def simple_sentiment(text):
-    text = text.lower()
-    if "rise" in text or "growth" in text or "profit" in text:
-        return "📈 บวก"
-    elif "fall" in text or "loss" in text or "drop" in text:
-        return "📉 ลบ"
-    return "➖ กลาง"
+# 🧠 sentiment จาก keyword ข่าวจริง
+def analyze_sentiment(news_list):
+    positive_words = ["surge", "rise", "growth", "beat", "strong", "record", "profit"]
+    negative_words = ["drop", "fall", "miss", "weak", "loss", "fear", "cut"]
+
+    score = 0
+
+    for news in news_list:
+        text = news.lower()
+        for word in positive_words:
+            if word in text:
+                score += 1
+        for word in negative_words:
+            if word in text:
+                score -= 1
+
+    if score > 1:
+        return "📈 บวก", score
+    elif score < -1:
+        return "📉 ลบ", score
+    else:
+        return "➖ กลาง", score
+
+
+# 📰 ดึงข่าวจริงจาก yfinance
+def get_news(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        news = stock.news
+
+        headlines = []
+        for n in news[:5]:  # เอา 5 ข่าวล่าสุด
+            if "title" in n:
+                headlines.append(n["title"])
+
+        return headlines
+    except:
+        return []
+
 
 TOKEN = os.getenv("LINE_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
 if not TOKEN or not USER_ID:
-    raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า (เช็ค GitHub Secrets)")
+    raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า")
 
 portfolio = {
     "NVDA": -1.95,
@@ -31,7 +62,7 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์พอร์ตหุ้น\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (ข่าวจริง)\n\n"
 recommend = ""
 risk_alert = ""
 
@@ -49,50 +80,59 @@ for symbol, profit in portfolio.items():
         change = today - yesterday
         percent = (change / yesterday) * 100
 
-        # 🧠 mock ข่าว (เอาง่ายก่อน)
-        news = f"{symbol} stock movement today"
-        sentiment = simple_sentiment(news)
+        # 📰 ดึงข่าวจริง
+        news_list = get_news(symbol)
+
+        # 🧠 sentiment จากข่าว
+        sentiment, score = analyze_sentiment(news_list)
 
         # 🔥 signal
-        if percent > 2 and profit > 0:
-            signal = "🔥 Strong"
-        elif percent < -3:
-            signal = "⚠️ Risk"
+        if percent > 2 and score > 0:
+            signal = "🔥 Strong Buy"
+        elif percent < -3 and score < 0:
+            signal = "⚠️ Strong Risk"
+        elif score > 0:
+            signal = "📈 Positive Bias"
+        elif score < 0:
+            signal = "📉 Negative Bias"
         else:
             signal = "➡️ Neutral"
 
         # 🧠 analysis
-        analysis = ""
-        if percent < -3 and profit < -10:
-            analysis = "แนวโน้มลบ ควรระวัง"
-        elif percent > 2 and profit > 5:
-            analysis = "โมเมนตัมดี อาจถือต่อ"
+        if score > 2:
+            analysis = "ข่าวหนุนแรง มี momentum"
+        elif score < -2:
+            analysis = "ข่าวกดดัน เสี่ยงลงต่อ"
+        elif percent > 2:
+            analysis = "ราคาขึ้น แต่ข่าวยังไม่ชัด"
+        elif percent < -2:
+            analysis = "ราคาลง ต้องระวัง"
         else:
             analysis = "รอดูทิศทาง"
 
-        # 📊 format ใหม่ (โคตรสำคัญ)
+        # 📊 format
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
-{sentiment} | {signal}
+{sentiment} (score {score}) | {signal}
 🧠 {analysis}
 """
 
-        # 🔻 logic เดิมยังอยู่
-        if percent < -3:
-            recommend += f"{symbol} ลงแรง อาจน่าสนใจ\n"
+        # 📌 แนะนำ
+        if score > 2 and profit < 0:
+            recommend += f"{symbol} ข่าวดี + ยังติดลบ อาจเป็นโอกาส\n"
 
-        if profit < -20:
-            risk_alert += f"{symbol} ขาดทุนหนัก {profit}%\n"
+        if score < -2 and profit < -10:
+            risk_alert += f"{symbol} ข่าวลบ + ขาดทุนหนัก\n"
 
-        if profit > 10:
-            recommend += f"{symbol} กำไรสูง อาจขาย\n"
+        if profit > 15:
+            recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
 
         message_text += line + "\n"
 
     except Exception as e:
         message_text += f"{symbol}: error ({e})\n"
 
-# 🧠 สรุปท้าย
+# 🧠 สรุป
 if recommend:
     message_text += "\n🧠 คำแนะนำ:\n" + recommend
 
@@ -117,6 +157,6 @@ try:
     else:
         print("✅ ส่งสำเร็จ")
 except Exception as e:
-    print("❌ เกิดข้อผิดพลาดตอนส่ง LINE:", e)
+    print("❌ error:", e)
 
 print(response.status_code if 'response' in locals() else "No response")
