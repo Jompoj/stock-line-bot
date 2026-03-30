@@ -55,7 +55,16 @@ def generate_signal(percent, score, profit):
     else:
         return "➡️ Neutral", total_score
 
+def calculate_rsi(data, period=14):
+    delta = data["Close"].diff()
 
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi.iloc[-1]
 # 📰 ดึงข่าว
 def get_news(symbol):
     try:
@@ -102,7 +111,7 @@ results = []   # 🔥 สำหรับ top picks
 for symbol, profit in portfolio.items():
     try:
         stock = yf.Ticker(symbol)
-        data = stock.history(period="7d")
+        data = stock.history(period="1mo")
 
         if len(data) < 2:
             continue
@@ -113,9 +122,22 @@ for symbol, profit in portfolio.items():
         change = today - yesterday
         percent = (change / yesterday) * 100
 
+        rsi = calculate_rsi(data)
+        
+        ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
+        ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
         # 📊 trend
-        ma5 = data["Close"].tail(5).mean()
-        trend = "📈 ขาขึ้น" if today > ma5 else "📉 ขาลง"
+        if ema20 > ema50:
+            trend = "📈 ขาขึ้น (EMA)"
+        else:
+            trend = "📉 ขาลง (EMA)"
+        
+        if today > ma5 and ma5 > ma20:
+            trend = "🚀 ขาขึ้นแรง"
+        elif today < ma5 and ma5 < ma20:
+            trend = "🔻 ขาลงแรง"
+        else:
+            trend = "📊 sideway"
 
         # 📰 ข่าว
         news_list = get_news(symbol)
@@ -138,6 +160,16 @@ for symbol, profit in portfolio.items():
         # 🔥 AI signal
         signal, total_score = generate_signal(percent, score, profit)
 
+        # 🔥 override logic (สำคัญมาก)
+        if profit < -25 and score < 0:
+            signal = "💀 Cut Loss"
+        elif profit < -15 and score > 0:
+            signal = "🔥 Rebound Buy"
+        # 🔥 combine RSI
+        if rsi < 30 and score >= 0:
+            signal = "🔥 Strong Buy (RSI)"
+        elif rsi > 70 and score <= 0:
+            signal = "⚠️ Strong Sell (RSI)"
         # 🧠 analysis
         if score > 2 and percent > 1:
             analysis = "ข่าวแรง + ราคาขึ้น"
@@ -149,6 +181,15 @@ for symbol, profit in portfolio.items():
             analysis = "แรงขายออก"
         else:
             analysis = "รอดูทิศทาง"
+
+
+                # 🔥 RSI logic
+        if rsi > 70:
+            rsi_signal = "⚠️ Overbought"
+        elif rsi < 30:
+            rsi_signal = "🔥 Oversold"
+        else:
+            rsi_signal = "➖ ปกติ"
 
         # 🧠 insight
         if total_score >= 3:
@@ -163,10 +204,11 @@ for symbol, profit in portfolio.items():
             insight = "ตลาดยังไม่เลือกทาง"
 
         # 📊 text
-        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+        lline = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
 {sentiment} (news {score}) | {signal} ({total_score})
 🧠 {analysis} | {trend}
+📊 RSI: {rsi:.1f} ({rsi_signal})
 📌 {insight}
 """
 
@@ -193,7 +235,13 @@ for symbol, profit in portfolio.items():
 
 
 # 🔥 Top picks
-top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
+top = [x for x in results if x["score"] > 0]
+
+if not top:
+    top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
+else:
+    top = sorted(top, key=lambda x: x["score"], reverse=True)[:3]
+top = sorted(top, key=lambda x: x["score"], reverse=True)[:3]
 
 message_text += "\n🔥 ตัวน่าสนใจ:\n"
 for i, s in enumerate(top, 1):
