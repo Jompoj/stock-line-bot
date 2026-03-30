@@ -28,7 +28,35 @@ def analyze_sentiment(news_list):
     sentiment = "📈 บวก" if score > 1 else "📉 ลบ" if score < -1 else "➖ กลาง"
     return sentiment, score
 
+def generate_signal(percent, score, profit):
+    total_score = 0
 
+    # 📊 ราคา
+    if percent > 2:
+        total_score += 2
+    elif percent < -2:
+        total_score -= 2
+
+    # 📰 ข่าว
+    total_score += score
+
+    # 💼 พอร์ต
+    if profit > 10:
+        total_score -= 1  # ใกล้จุดขาย
+    elif profit < -10:
+        total_score += 1  # อาจรีบาว
+
+    # 🎯 ตัดสิน
+    if total_score >= 3:
+        return "🔥 Strong Buy", total_score
+    elif total_score <= -3:
+        return "⚠️ Strong Sell", total_score
+    elif total_score > 0:
+        return "📈 Buy Bias", total_score
+    elif total_score < 0:
+        return "📉 Sell Bias", total_score
+    else:
+        return "➡️ Neutral", total_score
 # 📰 ดึงข่าว
 def get_news(symbol):
     try:
@@ -105,7 +133,7 @@ for symbol, profit in portfolio.items():
         print(symbol, "news:", news_list)
         print(symbol, "score:", score)
 
-        # 🔥 signal
+        signal, total_score = generate_signal(percent, score, profit)
         if percent > 2 and score > 0:
             signal = "🔥 Strong Buy"
         elif percent < -3 and score < 0:
@@ -118,22 +146,24 @@ for symbol, profit in portfolio.items():
             signal = "➡️ Neutral"
 
         # 🧠 analysis
-        if score > 2:
-            analysis = "ข่าวหนุนแรง มี momentum"
-        elif score < -2:
-            analysis = "ข่าวกดดัน เสี่ยงลงต่อ"
-        elif percent > 2:
-            analysis = "ราคาขึ้น แต่ข่าวยังไม่ชัด"
-        elif percent < -2:
-            analysis = "ราคาลง ต้องระวัง"
-        else:
-            analysis = "รอดูทิศทาง"
+        # 🧠 insight แบบ repo
+if total_score >= 3:
+    insight = "มีแรงซื้อ + ข่าวสนับสนุน"
+elif total_score <= -3:
+    insight = "แรงขาย + sentiment ลบ"
+elif score > 0:
+    insight = "ข่าวเริ่มเป็นบวก"
+elif score < 0:
+    insight = "ข่าวเริ่มเป็นลบ"
+else:
+    insight = "ตลาดยังไม่เลือกทาง"
 
         # 📊 format
-        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+    line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
-{sentiment} (score {score}) | {signal}
+{sentiment} (news {score}) | {signal} ({total_score})
 🧠 {analysis}
+📌 {insight}
 """
 
         # 📌 แนะนำ
