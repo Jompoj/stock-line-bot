@@ -2,8 +2,20 @@ import yfinance as yf
 import requests
 import os
 
+# 🧠 sentiment แบบง่าย (เริ่มต้นก่อน)
+def simple_sentiment(text):
+    text = text.lower()
+    if "rise" in text or "growth" in text or "profit" in text:
+        return "📈 บวก"
+    elif "fall" in text or "loss" in text or "drop" in text:
+        return "📉 ลบ"
+    return "➖ กลาง"
+
 TOKEN = os.getenv("LINE_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
+
+if not TOKEN or not USER_ID:
+    raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า (เช็ค GitHub Secrets)")
 
 portfolio = {
     "NVDA": -1.95,
@@ -19,7 +31,7 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 สรุปพอร์ต + หุ้นวันนี้\n\n"
+message_text = "📊 AI วิเคราะห์พอร์ตหุ้น\n\n"
 recommend = ""
 risk_alert = ""
 
@@ -37,33 +49,57 @@ for symbol, profit in portfolio.items():
         change = today - yesterday
         percent = (change / yesterday) * 100
 
-        line = f"{symbol}: {today:.2f} ({percent:+.2f}%) | พอร์ต {profit:+.2f}%"
+        # 🧠 mock ข่าว (เอาง่ายก่อน)
+        news = f"{symbol} stock movement today"
+        sentiment = simple_sentiment(news)
 
+        # 🔥 signal
+        if percent > 2 and profit > 0:
+            signal = "🔥 Strong"
+        elif percent < -3:
+            signal = "⚠️ Risk"
+        else:
+            signal = "➡️ Neutral"
+
+        # 🧠 analysis
+        analysis = ""
+        if percent < -3 and profit < -10:
+            analysis = "แนวโน้มลบ ควรระวัง"
+        elif percent > 2 and profit > 5:
+            analysis = "โมเมนตัมดี อาจถือต่อ"
+        else:
+            analysis = "รอดูทิศทาง"
+
+        # 📊 format ใหม่ (โคตรสำคัญ)
+        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+พอร์ต: {profit:+.2f}%
+{sentiment} | {signal}
+🧠 {analysis}
+"""
+
+        # 🔻 logic เดิมยังอยู่
         if percent < -3:
-            line += " 🔻"
-            recommend += f"{symbol} ลงแรงวันนี้ อาจน่าสนใจ\n"
+            recommend += f"{symbol} ลงแรง อาจน่าสนใจ\n"
 
         if profit < -20:
-            line += " ⚠️ เสี่ยง"
             risk_alert += f"{symbol} ขาดทุนหนัก {profit}%\n"
 
         if profit > 10:
-            line += " 🔥"
-            recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
+            recommend += f"{symbol} กำไรสูง อาจขาย\n"
 
         message_text += line + "\n"
 
     except Exception as e:
         message_text += f"{symbol}: error ({e})\n"
 
-# สรุป
+# 🧠 สรุปท้าย
 if recommend:
-    message_text += "\n🧠 แนะนำ:\n" + recommend
+    message_text += "\n🧠 คำแนะนำ:\n" + recommend
 
 if risk_alert:
     message_text += "\n⚠️ ความเสี่ยง:\n" + risk_alert
 
-# ส่ง LINE
+# 📩 ส่ง LINE
 url = "https://api.line.me/v2/bot/message/push"
 headers = {
     "Authorization": f"Bearer {TOKEN}",
