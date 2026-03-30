@@ -126,15 +126,13 @@ for symbol, profit in portfolio.items():
         
         ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
         ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
+        ma5 = data["Close"].rolling(window=5).mean().iloc[-1]
+        ma20 = data["Close"].rolling(window=20).mean().iloc[-1]
         # 📊 trend
-        if ema20 > ema50:
-            trend = "📈 ขาขึ้น (EMA)"
-        else:
-            trend = "📉 ขาลง (EMA)"
-        
-        if today > ma5 and ma5 > ma20:
+       # 📊 trend combine
+        if ema20 > ema50 and today > ma5:
             trend = "🚀 ขาขึ้นแรง"
-        elif today < ma5 and ma5 < ma20:
+        elif ema20 < ema50 and today < ma5:
             trend = "🔻 ขาลงแรง"
         else:
             trend = "📊 sideway"
@@ -204,7 +202,7 @@ for symbol, profit in portfolio.items():
             insight = "ตลาดยังไม่เลือกทาง"
 
         # 📊 text
-        lline = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
 {sentiment} (news {score}) | {signal} ({total_score})
 🧠 {analysis} | {trend}
