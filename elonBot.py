@@ -2,10 +2,17 @@ import yfinance as yf
 import requests
 import os
 
-# 🧠 sentiment จาก keyword ข่าวจริง
+# 🧠 sentiment จาก keyword ข่าว
 def analyze_sentiment(news_list):
-    positive_words = ["surge", "rise", "growth", "beat", "strong", "record", "profit"]
-    negative_words = ["drop", "fall", "miss", "weak", "loss", "fear", "cut"]
+    positive_words = [
+        "surge","rise","growth","beat","strong","record","profit",
+        "upgrade","bullish","outperform","gain","positive"
+    ]
+    
+    negative_words = [
+        "drop","fall","miss","weak","loss","fear","cut",
+        "downgrade","bearish","underperform","decline","negative"
+    ]
 
     score = 0
 
@@ -13,27 +20,23 @@ def analyze_sentiment(news_list):
         text = news.lower()
         for word in positive_words:
             if word in text:
-                score += 1
+                score += 2
         for word in negative_words:
             if word in text:
-                score -= 1
+                score -= 2
 
-    if score > 1:
-        return "📈 บวก", score
-    elif score < -1:
-        return "📉 ลบ", score
-    else:
-        return "➖ กลาง", score
+    sentiment = "📈 บวก" if score > 1 else "📉 ลบ" if score < -1 else "➖ กลาง"
+    return sentiment, score
 
 
-# 📰 ดึงข่าวจริงจาก yfinance
+# 📰 ดึงข่าว
 def get_news(symbol):
     try:
         stock = yf.Ticker(symbol)
         news = stock.news
 
         headlines = []
-        for n in news[:5]:  # เอา 5 ข่าวล่าสุด
+        for n in news[:5]:
             if "title" in n:
                 headlines.append(n["title"])
 
@@ -62,7 +65,7 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์หุ้น (ข่าวจริง)\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (ข่าว + ราคา)\n\n"
 recommend = ""
 risk_alert = ""
 
@@ -80,11 +83,27 @@ for symbol, profit in portfolio.items():
         change = today - yesterday
         percent = (change / yesterday) * 100
 
-        # 📰 ดึงข่าวจริง
+        # 📰 ข่าว
         news_list = get_news(symbol)
 
-        # 🧠 sentiment จากข่าว
+        # 🧠 sentiment
         sentiment, score = analyze_sentiment(news_list)
+
+        # 🔥 fallback ถ้าไม่มีข่าว (สำคัญมาก)
+        if not news_list:
+            if percent > 1:
+                sentiment = "📈 บวก"
+                score = 1
+            elif percent < -1:
+                sentiment = "📉 ลบ"
+                score = -1
+            else:
+                sentiment = "➖ กลาง"
+                score = 0
+
+        # 🔍 debug (ดูใน GitHub log)
+        print(symbol, "news:", news_list)
+        print(symbol, "score:", score)
 
         # 🔥 signal
         if percent > 2 and score > 0:
