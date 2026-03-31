@@ -102,7 +102,7 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์หุ้น (PRO FINAL)\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (PRO SMART)\n\n"
 results = []
 
 market_bear = 0
@@ -154,15 +154,12 @@ for symbol, profit in portfolio.items():
             news_score = 0
 
         # Volume
-        if volume > avg_volume * 1.5:
-            volume_signal = "💰 Volume เข้าแรง"
-            volume_score = 2
-        elif volume < avg_volume * 0.5:
-            volume_signal = "💤 Volume แห้ง"
-            volume_score = -2
+        if volume > avg_volume:
+            volume_signal = "💰 Volume เข้า"
+            volume_score = 1
         else:
-            volume_signal = "📊 Volume ปกติ"
-            volume_score = 0
+            volume_signal = "💤 Volume ต่ำ"
+            volume_score = -1
 
         # MACD
         if macd > macd_signal:
@@ -172,14 +169,10 @@ for symbol, profit in portfolio.items():
             macd_text = "📉 MACD Bearish"
             macd_score = -2
 
-        # Breakout
-        high_20 = data["High"].rolling(20).max().iloc[-1]
-        if today >= high_20:
-            breakout = "🚀 Breakout"
-            breakout_score = 3
-        else:
-            breakout = ""
-            breakout_score = 0
+        # Momentum (เพิ่มใหม่ 🔥)
+        momentum_score = 0
+        if percent > 2 and macd > macd_signal:
+            momentum_score += 2
 
         # SCORE
         total_score = 0
@@ -191,16 +184,12 @@ for symbol, profit in portfolio.items():
         elif percent < -3:
             total_score -= 2
 
-        total_score += news_score + macd_score + volume_score + breakout_score
+        total_score += news_score + macd_score + volume_score + momentum_score
 
         if trend == "🚀 ขาขึ้นแรง":
             total_score += 1
         elif trend == "🔻 ขาลงแรง":
             total_score -= 1
-
-        # Conviction boost
-        if macd > macd_signal and trend == "🚀 ขาขึ้นแรง" and volume > avg_volume:
-            total_score += 2
 
         # SIGNAL
         if rsi < 25 and macd > macd_signal:
@@ -214,24 +203,22 @@ for symbol, profit in portfolio.items():
         else:
             signal = "➡️ Neutral"
 
+        # ❌ กันสัญญาณมั่ว
+        if trend == "🔻 ขาลงแรง" and "Buy" in signal:
+            signal = "➡️ Neutral"
+
+        if "Buy" in signal and volume < avg_volume:
+            signal = "➡️ Neutral"
+
         # ENTRY
-        if "Buy" in signal and trend != "🔻 ขาลงแรง":
+        if "Buy" in signal:
             entry = "📍 เข้าได้"
         elif "Sell" in signal:
             entry = "⛔ ห้ามเข้า"
         else:
             entry = "⏳ รอ"
 
-        # Insight
-        if rsi < 30 and macd > macd_signal:
-            insight = "🔥 เริ่มกลับตัว"
-        elif rsi > 70:
-            insight = "⚠️ เสี่ยงย่อ"
-        elif breakout:
-            insight = "🚀 ทะลุแนวต้าน"
-        else:
-            insight = "📊 ปกติ"
-
+        # Confidence
         confidence = int(min(max((abs(total_score) / 6) * 100, 20), 95))
 
         # TRADE PLAN
@@ -242,14 +229,14 @@ for symbol, profit in portfolio.items():
 
         rr = (take_profit - entry_price) / (entry_price - stop_loss) if (entry_price - stop_loss) != 0 else 0
 
-        # POSITION SIZE
+        # POSITION SIZE (ลดเสี่ยง)
         risk_per_trade = 0.02
         if (entry_price - stop_loss) > 0:
             position_size = (risk_per_trade / ((entry_price - stop_loss) / entry_price)) * 100
         else:
             position_size = 0
 
-        position_size = min(max(position_size, 5), 30)
+        position_size = min(max(position_size, 5), 15)
 
         trade_plan = f"""📍 {entry_price:.2f}
 🛑 {stop_loss:.2f}
@@ -263,7 +250,6 @@ RR: {rr:.2f}
 🎯 {confidence}% | {trend}
 📊 {macd_text} | {volume_signal}
 {entry}
-📌 {insight}
 
 {trade_plan}
 """
@@ -291,7 +277,7 @@ else:
 # ==============================
 # 🔥 BEST TRADE
 # ==============================
-top = [r for r in results if r["score"] >= 3]
+top = [r for r in results if r["score"] >= 2]
 top = sorted(top, key=lambda x: x["score"], reverse=True)
 top = top[:1]
 
