@@ -230,11 +230,13 @@ for symbol, profit in portfolio.items():
         else:
             rsi_text = "➖ ปกติ"
 
-        # Insight
-        elif rsi < 30 and macd < macd_signal:
-            signal = "⚠️ Oversold (กำลังลง)"
+        # ======================
+        # 🧠 Insight (แก้แล้ว)
+        # ======================
+        if rsi < 30 and macd < macd_signal:
+            insight = "📉 ลงแรง แต่ยังไม่กลับตัว"
         elif rsi < 30 and macd > macd_signal:
-            signal = "🔥 Buy (เริ่มกลับตัว)"
+            insight = "🔥 เริ่มกลับตัว"
         elif rsi > 70:
             insight = "⚠️ เสี่ยงย่อ"
         elif breakout:
