@@ -207,16 +207,18 @@ for symbol, profit in portfolio.items():
             signal = "➡️ Neutral"
 
         # Cut loss
-        if profit < -25:
-            signal = "💀 Cut Loss"
+        if profit < -30 and macd < macd_signal:
+            signal = "💀 เสี่ยงสูง (Dead Cat Bounce)"
 
         # Entry logic (โปรจริง)
-        if signal.startswith("⚠️"):
+        if "Dead Cat" in signal:
+            entry = "⛔ ห้ามเข้าเด็ดขาด"
+        elif signal.startswith("⚠️"):
             entry = "⛔ ห้ามเข้า"
-        elif "Strong Buy" in signal and trend == "🚀 ขาขึ้นแรง":
+        elif "Buy" in signal and trend != "🔻 ขาลงแรง":
             entry = "📍 เข้าได้"
         elif "Oversold" in signal:
-            entry = "📍 รอเด้งก่อน"
+            entry = "📍 รอสัญญาณยืนยัน"
         else:
             entry = "⏳ รอ"
 
@@ -229,10 +231,10 @@ for symbol, profit in portfolio.items():
             rsi_text = "➖ ปกติ"
 
         # Insight
-        if rsi < 30 and macd < macd_signal:
-            insight = "📉 ลงแรง แต่ยังไม่กลับตัว"
+        elif rsi < 30 and macd < macd_signal:
+            signal = "⚠️ Oversold (กำลังลง)"
         elif rsi < 30 and macd > macd_signal:
-            insight = "🔥 เริ่มกลับตัว"
+            signal = "🔥 Buy (เริ่มกลับตัว)"
         elif rsi > 70:
             insight = "⚠️ เสี่ยงย่อ"
         elif breakout:
@@ -241,7 +243,7 @@ for symbol, profit in portfolio.items():
             insight = "📊 ปกติ"
 
         # Confidence
-        confidence = min(max(total_score * 20, 0), 100)
+        confidence = int(min(max((abs(total_score) / 5) * 100, 10), 95))
 
         # OUTPUT
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
