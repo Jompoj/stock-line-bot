@@ -157,7 +157,7 @@ for symbol, profit in portfolio.items():
         if volume > avg_volume * 1.5:
             volume_signal = "💰 Volume เข้าแรง"
             volume_score = 2
-        elif volume < avg_volume * 0.7:
+        elif volume < avg_volume * 0.5:
             volume_signal = "💤 Volume แห้ง"
             volume_score = -2
         else:
@@ -189,12 +189,21 @@ for symbol, profit in portfolio.items():
         # ==============================
         total_score = 0
         
-        if percent > 2:
-            total_score += 3
-        elif percent < -2:
-            total_score -= 3
+       # Momentum boost
+        if percent > 3:
+            total_score += 2
+        elif percent > 1.5:
+            total_score += 1
+        elif percent < -3:
+            total_score -= 2
         
         total_score += news_score + macd_score + volume_score + breakout_score
+        # Trend impact
+
+        if trend == "🚀 ขาขึ้นแรง":
+            total_score += 1
+        elif trend == "🔻 ขาลงแรง":
+            total_score -= 1
 
         # RSI กันหลอก
        # ==============================
@@ -210,7 +219,7 @@ for symbol, profit in portfolio.items():
             total_score -= 2
         elif rsi > 75:
             signal = "⚠️ Overbought"
-        elif total_score >= 4:
+        elif total_score >= 3:
             signal = "🔥 Buy"
         elif total_score <= -4:
             signal = "⚠️ Sell"
@@ -275,8 +284,37 @@ for symbol, profit in portfolio.items():
         # 🎯 Confidence (อัปเกรด)
         # ==============================
         confidence = int(min(max((abs(total_score) / 6) * 100, 20), 95))
+
+
+
+
+
+        # ==============================
+        # 🎯 ENTRY / SL / TP (PRO)
+        # ==============================
+        atr = (data["High"] - data["Low"]).rolling(14).mean().iloc[-1]
+        
+        entry_price = today
+        
+        # Stop Loss
+        if trend == "🚀 ขาขึ้นแรง":
+            stop_loss = today - (atr * 1.5)
+        else:
+            stop_loss = today - (atr * 1.2)
+        
+        # Take Profit
+        take_profit = today + (atr * 2.5)
+        
+        # Risk Reward
+        rr = (take_profit - entry_price) / (entry_price - stop_loss) if (entry_price - stop_loss) != 0 else 0
+        
+        # Format
+        trade_plan = f"""📍 เข้า: {entry_price:.2f}
+        🛑 SL: {stop_loss:.2f}
+        🎯 TP: {take_profit:.2f}
+        RR: {rr:.2f}"""
         # OUTPUT
-        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
 {sentiment} | {signal} ({total_score})
 🎯 ความมั่นใจ: {confidence}%
@@ -286,6 +324,8 @@ for symbol, profit in portfolio.items():
 {breakout}
 {entry}
 📌 {insight}
+
+{trade_plan}
 """
 
         message_text += line + "\n"
