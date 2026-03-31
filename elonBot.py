@@ -309,25 +309,29 @@ for symbol, profit in portfolio.items():
         rr = (take_profit - entry_price) / (entry_price - stop_loss) if (entry_price - stop_loss) != 0 else 0
         
         # Format
+        # Format
         trade_plan = f"""📍 เข้า: {entry_price:.2f}
         🛑 SL: {stop_loss:.2f}
         🎯 TP: {take_profit:.2f}
         RR: {rr:.2f}"""
-        # OUTPUT
-line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
-พอร์ต: {profit:+.2f}%
-{sentiment} | {signal} ({total_score})
-🎯 ความมั่นใจ: {confidence}%
-🧠 {trend}
-📊 RSI: {rsi:.1f} ({rsi_text})
-📊 {macd_text} | {volume_signal}
-{breakout}
-{entry}
-📌 {insight}
-
-{trade_plan}
-"""
-
+        
+        # ==============================
+        # OUTPUT (ต้องอยู่ใน try!)
+        # ==============================
+        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
+        พอร์ต: {profit:+.2f}%
+        {sentiment} | {signal} ({total_score})
+        🎯 ความมั่นใจ: {confidence}%
+        🧠 {trend}
+        📊 RSI: {rsi:.1f} ({rsi_text})
+        📊 {macd_text} | {volume_signal}
+        {breakout}
+        {entry}
+        📌 {insight}
+        
+        {trade_plan}
+        """
+        
         message_text += line + "\n"
         results.append({"symbol": symbol, "score": total_score})
 
