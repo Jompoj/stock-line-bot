@@ -7,15 +7,11 @@ import time
 # 🧠 sentiment จากข่าว
 # ==============================
 def analyze_sentiment(news_list):
-    positive_words = [
-        "surge","rise","growth","beat","strong","record","profit",
-        "upgrade","bullish","outperform","gain","positive"
-    ]
+    positive_words = ["surge","rise","growth","beat","strong","record","profit",
+        "upgrade","bullish","outperform","gain","positive"]
     
-    negative_words = [
-        "drop","fall","miss","weak","loss","fear","cut",
-        "downgrade","bearish","underperform","decline","negative"
-    ]
+    negative_words = ["drop","fall","miss","weak","loss","fear","cut",
+        "downgrade","bearish","underperform","decline","negative"]
 
     score = 0
 
@@ -106,10 +102,12 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์หุ้น (PRO VERSION)\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (PRO+ VERSION)\n\n"
 results = []
-recommend = ""
-risk_alert = ""
+
+# 🌍 market tracking
+market_bear = 0
+market_bull = 0
 
 
 # ==============================
@@ -118,7 +116,6 @@ risk_alert = ""
 for symbol, profit in portfolio.items():
     try:
         data = get_data_safe(symbol)
-
         if data is None or len(data) < 35:
             continue
 
@@ -126,9 +123,7 @@ for symbol, profit in portfolio.items():
         yesterday = data["Close"].iloc[-2]
         percent = ((today - yesterday) / yesterday) * 100
 
-        # ======================
-        # 📊 Indicators
-        # ======================
+        # Indicators
         rsi = calculate_rsi(data)
         macd, macd_signal = calculate_macd(data)
 
@@ -139,29 +134,24 @@ for symbol, profit in portfolio.items():
         volume = data["Volume"].iloc[-1]
         avg_volume = data["Volume"].rolling(20).mean().iloc[-1]
 
-        # ======================
-        # 📊 Trend
-        # ======================
+        # Trend + market count
         if ema20 > ema50 and today > ma5:
             trend = "🚀 ขาขึ้นแรง"
+            market_bull += 1
         elif ema20 < ema50 and today < ma5:
             trend = "🔻 ขาลงแรง"
+            market_bear += 1
         else:
             trend = "📊 sideway"
 
-        # ======================
-        # 📰 News
-        # ======================
+        # News
         news_list = get_news(symbol)
         sentiment, news_score = analyze_sentiment(news_list)
-
         if not news_list:
             sentiment = "➖ กลาง"
             news_score = 0
 
-        # ======================
-        # 📊 Volume
-        # ======================
+        # Volume
         if volume > avg_volume * 1.5:
             volume_signal = "💰 Volume เข้า"
             volume_score = 1
@@ -172,9 +162,7 @@ for symbol, profit in portfolio.items():
             volume_signal = "📊 Volume ปกติ"
             volume_score = 0
 
-        # ======================
-        # 📊 MACD
-        # ======================
+        # MACD
         if macd > macd_signal:
             macd_text = "📈 MACD Bullish"
             macd_score = 1
@@ -182,11 +170,8 @@ for symbol, profit in portfolio.items():
             macd_text = "📉 MACD Bearish"
             macd_score = -1
 
-        # ======================
-        # 🚀 Breakout
-        # ======================
+        # Breakout
         high_20 = data["High"].rolling(20).max().iloc[-1]
-
         if today >= high_20:
             breakout = "🚀 Breakout"
             breakout_score = 2
@@ -194,11 +179,8 @@ for symbol, profit in portfolio.items():
             breakout = ""
             breakout_score = 0
 
-        # ======================
-        # 🧠 SCORE
-        # ======================
+        # SCORE
         total_score = 0
-
         if percent > 2:
             total_score += 2
         elif percent < -2:
@@ -206,15 +188,17 @@ for symbol, profit in portfolio.items():
 
         total_score += news_score + macd_score + volume_score + breakout_score
 
-        # ======================
-        # 🔥 RSI Override (สำคัญ)
-        # ======================
-        if rsi < 25:
-            signal = "🔥 Strong Buy (RSI)"
+        # RSI กันหลอก
+        if rsi < 25 and macd > macd_signal:
+            signal = "🔥 Strong Buy (Confirmed)"
             total_score += 2
-        elif rsi > 75:
-            signal = "⚠️ Strong Sell (RSI)"
+        elif rsi < 25:
+            signal = "⚠️ Oversold (รอเด้ง)"
+        elif rsi > 75 and macd < macd_signal:
+            signal = "⚠️ Strong Sell (Confirmed)"
             total_score -= 2
+        elif rsi > 75:
+            signal = "⚠️ Overbought"
         elif total_score >= 3:
             signal = "🔥 Buy"
         elif total_score <= -3:
@@ -222,23 +206,21 @@ for symbol, profit in portfolio.items():
         else:
             signal = "➡️ Neutral"
 
-        # 💀 Cut loss
+        # Cut loss
         if profit < -25:
             signal = "💀 Cut Loss"
 
-        # ======================
-        # 📍 Entry Logic (ใหม่)
-        # ======================
-        if trend == "🔻 ขาลงแรง" and rsi < 30:
-            entry = "📍 รอสัญญาณกลับตัว"
-        elif trend == "🚀 ขาขึ้นแรง" and macd > macd_signal:
+        # Entry logic (โปรจริง)
+        if signal.startswith("⚠️"):
+            entry = "⛔ ห้ามเข้า"
+        elif "Strong Buy" in signal and trend == "🚀 ขาขึ้นแรง":
             entry = "📍 เข้าได้"
+        elif "Oversold" in signal:
+            entry = "📍 รอเด้งก่อน"
         else:
             entry = "⏳ รอ"
 
-        # ======================
-        # 📊 RSI text
-        # ======================
+        # RSI text
         if rsi > 70:
             rsi_text = "⚠️ Overbought"
         elif rsi < 30:
@@ -246,13 +228,11 @@ for symbol, profit in portfolio.items():
         else:
             rsi_text = "➖ ปกติ"
 
-        # ======================
-        # 🧠 Insight (ฉลาดขึ้น)
-        # ======================
+        # Insight
         if rsi < 30 and macd < macd_signal:
-            insight = "📉 ลงแรง แต่เริ่ม Oversold"
+            insight = "📉 ลงแรง แต่ยังไม่กลับตัว"
         elif rsi < 30 and macd > macd_signal:
-            insight = "🔥 มีโอกาสเด้ง"
+            insight = "🔥 เริ่มกลับตัว"
         elif rsi > 70:
             insight = "⚠️ เสี่ยงย่อ"
         elif breakout:
@@ -260,12 +240,14 @@ for symbol, profit in portfolio.items():
         else:
             insight = "📊 ปกติ"
 
-        # ======================
-        # 📊 OUTPUT
-        # ======================
+        # Confidence
+        confidence = min(max(total_score * 20, 0), 100)
+
+        # OUTPUT
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
 {sentiment} | {signal} ({total_score})
+🎯 ความมั่นใจ: {confidence}%
 🧠 {trend}
 📊 RSI: {rsi:.1f} ({rsi_text})
 📊 {macd_text} | {volume_signal}
@@ -282,6 +264,19 @@ for symbol, profit in portfolio.items():
 
 
 # ==============================
+# 🌍 Market Overview
+# ==============================
+total = len(portfolio)
+
+if market_bear > total * 0.6:
+    message_text += "\n🚨 ตลาดขาลง (Bear Market)\n"
+elif market_bull > total * 0.6:
+    message_text += "\n🚀 ตลาดขาขึ้น (Bull Market)\n"
+else:
+    message_text += "\n📊 ตลาดผันผวน\n"
+
+
+# ==============================
 # 🔥 TOP PICKS
 # ==============================
 top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
@@ -289,13 +284,6 @@ top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
 message_text += "\n🔥 ตัวน่าสนใจ:\n"
 for i, s in enumerate(top, 1):
     message_text += f"{i}. {s['symbol']} ({s['score']})\n"
-
-
-# ==============================
-# ✂️ กันข้อความยาว
-# ==============================
-if len(message_text) > 4500:
-    message_text = message_text[:4500] + "\n... (ตัดข้อความ)"
 
 
 # ==============================
@@ -308,7 +296,7 @@ headers = {
 }
 data = {
     "to": USER_ID,
-    "messages": [{"type": "text", "text": message_text}]
+    "messages": [{"type": "text", "text": message_text[:4500]}]
 }
 
 requests.post(url, headers=headers, json=data)
