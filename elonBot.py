@@ -2,7 +2,7 @@ import yfinance as yf
 import requests
 import os
 
-# 🧠 sentiment จาก keyword ข่าว
+# 🧠 sentiment จากข่าว
 def analyze_sentiment(news_list):
     positive_words = [
         "surge","rise","growth","beat","strong","record","profit",
@@ -29,53 +29,32 @@ def analyze_sentiment(news_list):
     return sentiment, score
 
 
-def generate_signal(percent, score, profit):
-    total_score = 0
-
-    if percent > 2:
-        total_score += 2
-    elif percent < -2:
-        total_score -= 2
-
-    total_score += score
-
-    if profit > 10:
-        total_score -= 1
-    elif profit < -10:
-        total_score += 1
-
-    if total_score >= 3:
-        return "🔥 Strong Buy", total_score
-    elif total_score <= -3:
-        return "⚠️ Strong Sell", total_score
-    elif total_score > 0:
-        return "📈 Buy Bias", total_score
-    elif total_score < 0:
-        return "📉 Sell Bias", total_score
-    else:
-        return "➡️ Neutral", total_score
-
 def calculate_rsi(data, period=14):
     delta = data["Close"].diff()
-
     gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
-
     return rsi.iloc[-1]
-# 📰 ดึงข่าว
+
+
+def calculate_macd(data):
+    ema12 = data["Close"].ewm(span=12).mean()
+    ema26 = data["Close"].ewm(span=26).mean()
+    macd = ema12 - ema26
+    signal = macd.ewm(span=9).mean()
+    return macd.iloc[-1], signal.iloc[-1]
+
+
+# 📰 ข่าว
 def get_news(symbol):
     try:
         stock = yf.Ticker(symbol)
         news = stock.news
-
         headlines = []
         for n in news[:5]:
             if "title" in n:
                 headlines.append(n["title"])
-
         return headlines
     except:
         return []
@@ -102,10 +81,10 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์หุ้น (ข่าว + ราคา)\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (PRO VERSION)\n\n"
+results = []
 recommend = ""
 risk_alert = ""
-results = []   # 🔥 สำหรับ top picks
 
 
 for symbol, profit in portfolio.items():
@@ -113,23 +92,26 @@ for symbol, profit in portfolio.items():
         stock = yf.Ticker(symbol)
         data = stock.history(period="1mo")
 
-        if len(data) < 2:
+        if len(data) < 30:
             continue
 
         today = data["Close"].iloc[-1]
         yesterday = data["Close"].iloc[-2]
+        percent = ((today - yesterday) / yesterday) * 100
 
-        change = today - yesterday
-        percent = (change / yesterday) * 100
-
+        # 📊 indicators
         rsi = calculate_rsi(data)
-        
+        macd, macd_signal = calculate_macd(data)
+
         ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
         ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
-        ma5 = data["Close"].rolling(window=5).mean().iloc[-1]
-        ma20 = data["Close"].rolling(window=20).mean().iloc[-1]
+
+        ma5 = data["Close"].rolling(5).mean().iloc[-1]
+
+        volume = data["Volume"].iloc[-1]
+        avg_volume = data["Volume"].rolling(20).mean().iloc[-1]
+
         # 📊 trend
-       # 📊 trend combine
         if ema20 > ema50 and today > ma5:
             trend = "🚀 ขาขึ้นแรง"
         elif ema20 < ema50 and today < ma5:
@@ -139,122 +121,118 @@ for symbol, profit in portfolio.items():
 
         # 📰 ข่าว
         news_list = get_news(symbol)
-        sentiment, score = analyze_sentiment(news_list)
+        sentiment, news_score = analyze_sentiment(news_list)
 
-        # fallback
         if not news_list:
-            if percent > 1:
-                sentiment = "📈 บวก"
-                score = 1
-            elif percent < -1:
-                sentiment = "📉 ลบ"
-                score = -1
-            else:
-                sentiment = "➖ กลาง"
-                score = 0
+            news_score = 0
+            sentiment = "➖ กลาง"
 
-        print(symbol, "score:", score)
+        # 📊 volume
+        if volume > avg_volume * 1.5:
+            volume_signal = "💰 Volume เข้า"
+            volume_score = 1
+        elif volume < avg_volume * 0.7:
+            volume_signal = "💤 Volume แห้ง"
+            volume_score = -1
+        else:
+            volume_signal = "📊 Volume ปกติ"
+            volume_score = 0
 
-        # 🔥 AI signal
-        signal, total_score = generate_signal(percent, score, profit)
+        # 📊 MACD
+        if macd > macd_signal:
+            macd_text = "📈 MACD Bullish"
+            macd_score = 1
+        else:
+            macd_text = "📉 MACD Bearish"
+            macd_score = -1
 
-        # 🔥 override logic (สำคัญมาก)
-        if profit < -25 and score < 0:
-            signal = "💀 Cut Loss"
-        elif profit < -15 and score > 0:
-            signal = "🔥 Rebound Buy"
-        # 🔥 combine RSI
-        if rsi < 30 and score >= 0:
-            signal = "🔥 Strong Buy (RSI)"
-        elif rsi > 70 and score <= 0:
-            signal = "⚠️ Strong Sell (RSI)"
-        # 🧠 analysis
-        if score > 2 and percent > 1:
-            analysis = "ข่าวแรง + ราคาขึ้น"
-        elif score < -2 and percent < -1:
-            analysis = "ข่าวลบ + ราคาลง"
-        elif percent > 2:
-            analysis = "แรงซื้อเข้า"
+        # 🧠 base score
+        total_score = 0
+
+        if percent > 2:
+            total_score += 2
         elif percent < -2:
-            analysis = "แรงขายออก"
+            total_score -= 2
+
+        total_score += news_score
+        total_score += macd_score
+        total_score += volume_score
+
+        # 🔥 RSI กันหลอก
+        if rsi < 30 and trend != "🔻 ขาลงแรง" and macd > macd_signal:
+            signal = "🔥 Strong Buy (Confirmed)"
+        elif rsi > 70 and trend != "🚀 ขาขึ้นแรง" and macd < macd_signal:
+            signal = "⚠️ Strong Sell (Confirmed)"
+        elif total_score >= 3:
+            signal = "🔥 Buy"
+        elif total_score <= -3:
+            signal = "⚠️ Sell"
         else:
-            analysis = "รอดูทิศทาง"
+            signal = "➡️ Neutral"
 
+        # 💀 cut loss
+        if profit < -25:
+            signal = "💀 Cut Loss"
 
-                # 🔥 RSI logic
+        # 📊 RSI text
         if rsi > 70:
-            rsi_signal = "⚠️ Overbought"
+            rsi_text = "⚠️ Overbought"
         elif rsi < 30:
-            rsi_signal = "🔥 Oversold"
+            rsi_text = "🔥 Oversold"
         else:
-            rsi_signal = "➖ ปกติ"
+            rsi_text = "➖ ปกติ"
 
         # 🧠 insight
-        if total_score >= 3:
-            insight = "มีแรงซื้อ + ข่าวสนับสนุน"
-        elif total_score <= -3:
-            insight = "แรงขาย + sentiment ลบ"
-        elif score > 0:
-            insight = "ข่าวเริ่มเป็นบวก"
-        elif score < 0:
-            insight = "ข่าวเริ่มเป็นลบ"
+        if total_score >= 4:
+            insight = "🔥 แรงซื้อชัด"
+        elif total_score >= 2:
+            insight = "📈 แนวโน้มบวก"
+        elif total_score <= -4:
+            insight = "💀 แรงขายหนัก"
+        elif total_score <= -2:
+            insight = "📉 แนวโน้มลบ"
         else:
-            insight = "ตลาดยังไม่เลือกทาง"
+            insight = "📊 รอดู"
 
-        # 📊 text
+        # 📊 output
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
-{sentiment} (news {score}) | {signal} ({total_score})
-🧠 {analysis} | {trend}
-📊 RSI: {rsi:.1f} ({rsi_signal})
+{sentiment} | {signal} ({total_score})
+🧠 {trend}
+📊 RSI: {rsi:.1f} ({rsi_text})
+📊 {macd_text} | {volume_signal}
 📌 {insight}
 """
 
         message_text += line + "\n"
 
-        # 🔥 เก็บไว้จัดอันดับ
-        results.append({
-            "symbol": symbol,
-            "score": total_score
-        })
+        results.append({"symbol": symbol, "score": total_score})
 
-        # 📌 แนะนำ
-        if score > 2 and profit < 0:
-            recommend += f"{symbol} ข่าวดี + ยังติดลบ อาจเป็นโอกาส\n"
+        if total_score > 2:
+            recommend += f"{symbol} แนวโน้มดี\n"
 
-        if score < -2 and profit < -10:
-            risk_alert += f"{symbol} ข่าวลบ + ขาดทุนหนัก\n"
-
-        if profit > 15:
-            recommend += f"{symbol} กำไรสูง อาจทยอยขาย\n"
+        if total_score < -2:
+            risk_alert += f"{symbol} เสี่ยง\n"
 
     except Exception as e:
         message_text += f"{symbol}: error ({e})\n"
 
 
-# 🔥 Top picks
-top = [x for x in results if x["score"] > 0]
-
-if not top:
-    top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
-else:
-    top = sorted(top, key=lambda x: x["score"], reverse=True)[:3]
-top = sorted(top, key=lambda x: x["score"], reverse=True)[:3]
+# 🔥 top picks
+top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
 
 message_text += "\n🔥 ตัวน่าสนใจ:\n"
 for i, s in enumerate(top, 1):
-    message_text += f"{i}. {s['symbol']} (score {s['score']})\n"
+    message_text += f"{i}. {s['symbol']} ({s['score']})\n"
 
-
-# 🧠 สรุป
 if recommend:
-    message_text += "\n🧠 คำแนะนำ:\n" + recommend
+    message_text += "\n🧠 แนะนำ:\n" + recommend
 
 if risk_alert:
-    message_text += "\n⚠️ ความเสี่ยง:\n" + risk_alert
+    message_text += "\n⚠️ ระวัง:\n" + risk_alert
 
 
-# 📩 ส่ง LINE
+# 📩 LINE
 url = "https://api.line.me/v2/bot/message/push"
 headers = {
     "Authorization": f"Bearer {TOKEN}",
@@ -265,8 +243,4 @@ data = {
     "messages": [{"type": "text", "text": message_text}]
 }
 
-try:
-    response = requests.post(url, headers=headers, json=data)
-    print("✅ ส่งสำเร็จ" if response.status_code == 200 else response.text)
-except Exception as e:
-    print("❌ error:", e)
+requests.post(url, headers=headers, json=data)
