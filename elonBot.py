@@ -1,8 +1,11 @@
 import yfinance as yf
 import requests
 import os
+import time
 
+# ==============================
 # 🧠 sentiment จากข่าว
+# ==============================
 def analyze_sentiment(news_list):
     positive_words = [
         "surge","rise","growth","beat","strong","record","profit",
@@ -29,10 +32,13 @@ def analyze_sentiment(news_list):
     return sentiment, score
 
 
+# ==============================
+# 📊 Indicators
+# ==============================
 def calculate_rsi(data, period=14):
     delta = data["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
     rs = gain / loss
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]
@@ -46,20 +52,36 @@ def calculate_macd(data):
     return macd.iloc[-1], signal.iloc[-1]
 
 
+# ==============================
 # 📰 ข่าว
+# ==============================
 def get_news(symbol):
     try:
         stock = yf.Ticker(symbol)
         news = stock.news
-        headlines = []
-        for n in news[:5]:
-            if "title" in n:
-                headlines.append(n["title"])
-        return headlines
+        return [n["title"] for n in news[:5] if "title" in n]
     except:
         return []
 
 
+# ==============================
+# 🔥 ดึงข้อมูลแบบกันพัง
+# ==============================
+def get_data_safe(symbol):
+    for _ in range(3):
+        try:
+            stock = yf.Ticker(symbol)
+            data = stock.history(period="3mo")
+            if not data.empty:
+                return data
+        except:
+            time.sleep(1)
+    return None
+
+
+# ==============================
+# 🔑 ENV
+# ==============================
 TOKEN = os.getenv("LINE_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
@@ -67,6 +89,9 @@ if not TOKEN or not USER_ID:
     raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า")
 
 
+# ==============================
+# 💼 PORT
+# ==============================
 portfolio = {
     "NVDA": -1.95,
     "JNJ": -2.45,
@@ -87,12 +112,18 @@ recommend = ""
 risk_alert = ""
 
 
+# ==============================
+# 🔁 LOOP
+# ==============================
 for symbol, profit in portfolio.items():
     try:
-        stock = yf.Ticker(symbol)
-        data = stock.history(period="1mo")
+        data = get_data_safe(symbol)
 
-        if len(data) < 30:
+        if data is None or len(data) < 35:
+            print(symbol, "❌ data ไม่พอ")
+            continue
+
+        if len(data) < 2:
             continue
 
         today = data["Close"].iloc[-1]
@@ -105,7 +136,6 @@ for symbol, profit in portfolio.items():
 
         ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
         ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
-
         ma5 = data["Close"].rolling(5).mean().iloc[-1]
 
         volume = data["Volume"].iloc[-1]
@@ -124,8 +154,8 @@ for symbol, profit in portfolio.items():
         sentiment, news_score = analyze_sentiment(news_list)
 
         if not news_list:
-            news_score = 0
             sentiment = "➖ กลาง"
+            news_score = 0
 
         # 📊 volume
         if volume > avg_volume * 1.5:
@@ -146,7 +176,7 @@ for symbol, profit in portfolio.items():
             macd_text = "📉 MACD Bearish"
             macd_score = -1
 
-        # 🧠 base score
+        # 🧠 SCORE
         total_score = 0
 
         if percent > 2:
@@ -154,15 +184,13 @@ for symbol, profit in portfolio.items():
         elif percent < -2:
             total_score -= 2
 
-        total_score += news_score
-        total_score += macd_score
-        total_score += volume_score
+        total_score += news_score + macd_score + volume_score
 
-        # 🔥 RSI กันหลอก
+        # 🔥 SIGNAL
         if rsi < 30 and trend != "🔻 ขาลงแรง" and macd > macd_signal:
-            signal = "🔥 Strong Buy (Confirmed)"
+            signal = "🔥 Strong Buy"
         elif rsi > 70 and trend != "🚀 ขาขึ้นแรง" and macd < macd_signal:
-            signal = "⚠️ Strong Sell (Confirmed)"
+            signal = "⚠️ Strong Sell"
         elif total_score >= 3:
             signal = "🔥 Buy"
         elif total_score <= -3:
@@ -170,7 +198,6 @@ for symbol, profit in portfolio.items():
         else:
             signal = "➡️ Neutral"
 
-        # 💀 cut loss
         if profit < -25:
             signal = "💀 Cut Loss"
 
@@ -182,18 +209,6 @@ for symbol, profit in portfolio.items():
         else:
             rsi_text = "➖ ปกติ"
 
-        # 🧠 insight
-        if total_score >= 4:
-            insight = "🔥 แรงซื้อชัด"
-        elif total_score >= 2:
-            insight = "📈 แนวโน้มบวก"
-        elif total_score <= -4:
-            insight = "💀 แรงขายหนัก"
-        elif total_score <= -2:
-            insight = "📉 แนวโน้มลบ"
-        else:
-            insight = "📊 รอดู"
-
         # 📊 output
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
@@ -201,38 +216,35 @@ for symbol, profit in portfolio.items():
 🧠 {trend}
 📊 RSI: {rsi:.1f} ({rsi_text})
 📊 {macd_text} | {volume_signal}
-📌 {insight}
 """
 
         message_text += line + "\n"
-
         results.append({"symbol": symbol, "score": total_score})
-
-        if total_score > 2:
-            recommend += f"{symbol} แนวโน้มดี\n"
-
-        if total_score < -2:
-            risk_alert += f"{symbol} เสี่ยง\n"
 
     except Exception as e:
         message_text += f"{symbol}: error ({e})\n"
 
 
-# 🔥 top picks
+# ==============================
+# 🔥 TOP PICKS
+# ==============================
 top = sorted(results, key=lambda x: x["score"], reverse=True)[:3]
 
 message_text += "\n🔥 ตัวน่าสนใจ:\n"
 for i, s in enumerate(top, 1):
     message_text += f"{i}. {s['symbol']} ({s['score']})\n"
 
-if recommend:
-    message_text += "\n🧠 แนะนำ:\n" + recommend
 
-if risk_alert:
-    message_text += "\n⚠️ ระวัง:\n" + risk_alert
+# ==============================
+# ✂️ กันข้อความยาว
+# ==============================
+if len(message_text) > 4500:
+    message_text = message_text[:4500] + "\n... (ตัดข้อความ)"
 
 
+# ==============================
 # 📩 LINE
+# ==============================
 url = "https://api.line.me/v2/bot/message/push"
 headers = {
     "Authorization": f"Bearer {TOKEN}",
