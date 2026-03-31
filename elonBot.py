@@ -151,44 +151,55 @@ for symbol, profit in portfolio.items():
             sentiment = "➖ กลาง"
             news_score = 0
 
-        # Volume
+               # ==============================
+        # 📊 Volume (อัปเกรด)
+        # ==============================
         if volume > avg_volume * 1.5:
-            volume_signal = "💰 Volume เข้า"
-            volume_score = 1
+            volume_signal = "💰 Volume เข้าแรง"
+            volume_score = 2
         elif volume < avg_volume * 0.7:
             volume_signal = "💤 Volume แห้ง"
-            volume_score = -1
+            volume_score = -2
         else:
             volume_signal = "📊 Volume ปกติ"
             volume_score = 0
 
-        # MACD
+        # ==============================
+        # 📊 MACD
+        # ==============================
         if macd > macd_signal:
             macd_text = "📈 MACD Bullish"
-            macd_score = 1
+            macd_score = 2
         else:
             macd_text = "📉 MACD Bearish"
-            macd_score = -1
+            macd_score = -2
 
-        # Breakout
+        # ==============================
+        # 🚀 Breakout
+        # ==============================
         high_20 = data["High"].rolling(20).max().iloc[-1]
         if today >= high_20:
             breakout = "🚀 Breakout"
-            breakout_score = 2
+            breakout_score = 3
         else:
             breakout = ""
             breakout_score = 0
-
-        # SCORE
+        # ==============================
+        # 🧠 SCORE (อัปเกรด)
+        # ==============================
         total_score = 0
+        
         if percent > 2:
-            total_score += 2
+            total_score += 3
         elif percent < -2:
-            total_score -= 2
-
+            total_score -= 3
+        
         total_score += news_score + macd_score + volume_score + breakout_score
 
         # RSI กันหลอก
+       # ==============================
+        # 🧠 SIGNAL (กันหลอก)
+        # ==============================
         if rsi < 25 and macd > macd_signal:
             signal = "🔥 Strong Buy (Confirmed)"
             total_score += 2
@@ -199,9 +210,9 @@ for symbol, profit in portfolio.items():
             total_score -= 2
         elif rsi > 75:
             signal = "⚠️ Overbought"
-        elif total_score >= 3:
+        elif total_score >= 4:
             signal = "🔥 Buy"
-        elif total_score <= -3:
+        elif total_score <= -4:
             signal = "⚠️ Sell"
         else:
             signal = "➡️ Neutral"
@@ -209,18 +220,32 @@ for symbol, profit in portfolio.items():
         # Cut loss
         if profit < -30 and macd < macd_signal:
             signal = "💀 เสี่ยงสูง (Dead Cat Bounce)"
+        # ==============================
+        # 🚫 กัน Fake breakout
+        # ==============================
+        if "Strong Buy" in signal and volume < avg_volume:
+            signal = "⚠️ Fake Breakout"
+
 
         # Entry logic (โปรจริง)
+        # ==============================
+        # 📍 Entry logic (แก้ของเดิม)
+        # ==============================
         if "Dead Cat" in signal:
             entry = "⛔ ห้ามเข้าเด็ดขาด"
-        elif signal.startswith("⚠️"):
-            entry = "⛔ ห้ามเข้า"
+        elif "Fake Breakout" in signal:
+            entry = "⚠️ รอสัญญาณใหม่"
+        elif "Strong Buy" in signal:
+            entry = "🚀 เข้าได้ทันที"
         elif "Buy" in signal and trend != "🔻 ขาลงแรง":
             entry = "📍 เข้าได้"
         elif "Oversold" in signal:
             entry = "📍 รอสัญญาณยืนยัน"
+        elif signal.startswith("⚠️"):
+            entry = "⛔ ห้ามเข้า"
         else:
             entry = "⏳ รอ"
+
 
         # RSI text
         if rsi > 70:
@@ -230,9 +255,10 @@ for symbol, profit in portfolio.items():
         else:
             rsi_text = "➖ ปกติ"
 
-        # ======================
-        # 🧠 Insight (แก้แล้ว)
-        # ======================
+               
+        # ==============================
+        # 🧠 Insight
+        # ==============================
         if rsi < 30 and macd < macd_signal:
             insight = "📉 ลงแรง แต่ยังไม่กลับตัว"
         elif rsi < 30 and macd > macd_signal:
@@ -243,10 +269,12 @@ for symbol, profit in portfolio.items():
             insight = "🚀 ทะลุแนวต้าน"
         else:
             insight = "📊 ปกติ"
-
-        # Confidence
-        confidence = int(min(max((abs(total_score) / 5) * 100, 10), 95))
-
+        
+        
+        # ==============================
+        # 🎯 Confidence (อัปเกรด)
+        # ==============================
+        confidence = int(min(max((abs(total_score) / 6) * 100, 20), 95))
         # OUTPUT
         line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
 พอร์ต: {profit:+.2f}%
