@@ -104,48 +104,77 @@ def analyze_stock(symbol):
 
     percent = latest["Return"] * 100
 
-    # 🔥 Momentum Boost (แก้ conservative)
+    avg_volume = df["Volume"].rolling(20).mean().iloc[-1]
+
+    # ==============================
+    # 🔥 SMART SCORE SYSTEM (แม่นขึ้น)
+    # ==============================
     score = 0
 
-    if percent > 2:
-        score += 2
+    # ✅ Momentum (หลัก)
+    momentum_ok = percent > 2 and latest["MACD"] > latest["MACD_signal"]
+    if momentum_ok:
+        score += 3
+
     if percent > 4:
-        score += 2
-
-    if latest["MACD"] > latest["MACD_signal"]:
-        score += 2
-
-    if latest["EMA20"] > latest["EMA50"]:
         score += 1
 
-    # 🤖 ML
+    # ✅ Trend confirmation
+    trend_ok = latest["EMA20"] > latest["EMA50"]
+    if trend_ok:
+        score += 1
+
+    # ✅ Volume (ไม่ strict เกิน)
+    volume_ok = latest["Volume"] > avg_volume * 0.8
+    if volume_ok:
+        score += 1
+
+    # ❌ กันหุ้นพุ่งแรงเกิน (ไม่ไล่ราคา)
+    if percent > 8:
+        return {
+            "symbol": symbol,
+            "price": round(latest["Close"],2),
+            "percent": round(percent,2),
+            "score": score,
+            "signal": "⚠️ Overextended",
+            "ml": "-",
+            "backtest": 0
+        }
+
+    # ==============================
+    # 🤖 MACHINE LEARNING (ลดอิทธิพล)
+    # ==============================
     pred = model.predict([[latest["Return"], latest["RSI"], latest["MACD"], latest["Volume"]]])[0]
 
     if pred == 1:
-        score += 3
+        score += 1.5   # ลดจาก 3 → 1.5
         ml_text = "📈 ML ขึ้น"
     else:
-        score -= 2
+        score -= 1
         ml_text = "📉 ML ลง"
 
-    # 🎯 SIGNAL
-    if score >= 5:
+    # ==============================
+    # 🎯 FINAL SIGNAL (ฉลาดขึ้น)
+    # ==============================
+    if score >= 5 and momentum_ok and trend_ok:
         signal = "🔥 STRONG BUY"
-    elif score >= 3:
+    elif score >= 4 and momentum_ok:
         signal = "🔥 BUY"
     elif score <= -3:
         signal = "⚠️ SELL"
     else:
         signal = "➡️ WAIT"
 
+    # ==============================
     # 💰 BACKTEST
+    # ==============================
     bt = backtest(df)
 
     return {
         "symbol": symbol,
         "price": round(latest["Close"],2),
         "percent": round(percent,2),
-        "score": score,
+        "score": round(score,2),
         "signal": signal,
         "ml": ml_text,
         "backtest": round(bt,2)
@@ -156,15 +185,23 @@ def analyze_stock(symbol):
 # ==============================
 def pick_best(results):
     results = [r for r in results if r is not None]
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
 
-    if not results:
+    # เอาเฉพาะตัวที่ "ควรเข้า"
+    candidates = [r for r in results if "BUY" in r["signal"]]
+
+    if not candidates:
         return None
 
-    top = results[0]
+    # เรียงตาม score + backtest
+    candidates = sorted(candidates,
+                        key=lambda x: (x["score"], x["backtest"]),
+                        reverse=True)
 
-    if top["score"] >= 4:
-        return top
+    best = candidates[0]
+
+    # ต้องผ่านขั้นต่ำจริง
+    if best["score"] >= 4:
+        return best
 
     return None
 
