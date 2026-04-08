@@ -2,6 +2,7 @@ import yfinance as yf
 import requests
 import os
 import time
+import math
 
 # ==============================
 # 🧠 sentiment จากข่าว
@@ -61,17 +62,25 @@ def get_news(symbol):
 
 
 # ==============================
-# 🔥 ดึงข้อมูลแบบกันพัง
+# 🔥 ดึงข้อมูลแบบกันพัง (สำคัญมาก)
 # ==============================
 def get_data_safe(symbol):
-    for _ in range(3):
+    for _ in range(5):
         try:
             stock = yf.Ticker(symbol)
-            data = stock.history(period="3mo")
-            if not data.empty:
-                return data
-        except:
-            time.sleep(1)
+            data = stock.history(period="3mo", interval="1d")
+
+            if data is not None and not data.empty:
+                data = data.dropna()
+
+                if len(data) > 35:
+                    return data
+
+        except Exception as e:
+            print(f"{symbol} error: {e}")
+
+        time.sleep(2)
+
     return None
 
 
@@ -102,7 +111,7 @@ portfolio = {
     "KO": -7.45
 }
 
-message_text = "📊 AI วิเคราะห์หุ้น (PRO SMART)\n\n"
+message_text = "📊 AI วิเคราะห์หุ้น (ELON BOT V2)\n\n"
 results = []
 
 market_bear = 0
@@ -115,15 +124,28 @@ market_bull = 0
 for symbol, profit in portfolio.items():
     try:
         data = get_data_safe(symbol)
-        if data is None or len(data) < 35:
+
+        if data is None:
+            message_text += f"{symbol}: ❌ ดึงข้อมูลไม่ได้\n\n"
+            continue
+
+        # กัน NaN
+        if data["Close"].isna().all():
             continue
 
         today = data["Close"].iloc[-1]
         yesterday = data["Close"].iloc[-2]
+
+        if any(math.isnan(x) for x in [today, yesterday]):
+            continue
+
         percent = ((today - yesterday) / yesterday) * 100
 
         rsi = calculate_rsi(data)
         macd, macd_signal = calculate_macd(data)
+
+        if any(math.isnan(x) for x in [rsi, macd, macd_signal]):
+            continue
 
         ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
         ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
@@ -132,7 +154,9 @@ for symbol, profit in portfolio.items():
         volume = data["Volume"].iloc[-1]
         avg_volume = data["Volume"].rolling(20).mean().iloc[-1]
 
-        # ❌ FILTER หุ้น
+        # ==============================
+        # FILTER หุ้น
+        # ==============================
         if volume < avg_volume * 0.7 and abs(percent) < 2:
             continue
 
@@ -149,9 +173,6 @@ for symbol, profit in portfolio.items():
         # News
         news_list = get_news(symbol)
         sentiment, news_score = analyze_sentiment(news_list)
-        if not news_list:
-            sentiment = "➖ กลาง"
-            news_score = 0
 
         # Volume
         if volume > avg_volume:
@@ -169,10 +190,8 @@ for symbol, profit in portfolio.items():
             macd_text = "📉 MACD Bearish"
             macd_score = -2
 
-        # Momentum (เพิ่มใหม่ 🔥)
-        momentum_score = 0
-        if percent > 2 and macd > macd_signal:
-            momentum_score += 2
+        # Momentum
+        momentum_score = 2 if percent > 2 and macd > macd_signal else 0
 
         # SCORE
         total_score = 0
@@ -203,39 +222,34 @@ for symbol, profit in portfolio.items():
         else:
             signal = "➡️ Neutral"
 
-        # ❌ กันสัญญาณมั่ว
+        # กันมั่ว
         if trend == "🔻 ขาลงแรง" and "Buy" in signal:
             signal = "➡️ Neutral"
 
         if "Buy" in signal and volume < avg_volume:
             signal = "➡️ Neutral"
 
-        # ENTRY
-        if "Buy" in signal:
-            entry = "📍 เข้าได้"
-        elif "Sell" in signal:
-            entry = "⛔ ห้ามเข้า"
-        else:
-            entry = "⏳ รอ"
+        # Entry
+        entry = "📍 เข้าได้" if "Buy" in signal else "⛔ ห้ามเข้า" if "Sell" in signal else "⏳ รอ"
 
         # Confidence
         confidence = int(min(max((abs(total_score) / 6) * 100, 20), 95))
 
         # TRADE PLAN
         atr = (data["High"] - data["Low"]).rolling(14).mean().iloc[-1]
+
+        if math.isnan(atr):
+            continue
+
         entry_price = today
         stop_loss = today - (atr * 1.3)
         take_profit = today + (atr * 2.5)
 
         rr = (take_profit - entry_price) / (entry_price - stop_loss) if (entry_price - stop_loss) != 0 else 0
 
-        # POSITION SIZE (ลดเสี่ยง)
+        # Position size
         risk_per_trade = 0.02
-        if (entry_price - stop_loss) > 0:
-            position_size = (risk_per_trade / ((entry_price - stop_loss) / entry_price)) * 100
-        else:
-            position_size = 0
-
+        position_size = (risk_per_trade / ((entry_price - stop_loss) / entry_price)) * 100
         position_size = min(max(position_size, 5), 15)
 
         trade_plan = f"""📍 {entry_price:.2f}
@@ -277,17 +291,11 @@ else:
 # ==============================
 # 🔥 BEST TRADE
 # ==============================
-top = [r for r in results if r["score"] >= 2]
-top = sorted(top, key=lambda x: x["score"], reverse=True)
-top = top[:1]
+top = sorted([r for r in results if r["score"] >= 2],
+             key=lambda x: x["score"], reverse=True)[:1]
 
 message_text += "\n🔥 BEST TRADE:\n"
-
-if top:
-    s = top[0]
-    message_text += f"👉 {s['symbol']} ({s['score']})\n"
-else:
-    message_text += "❌ ไม่มีจังหวะ\n"
+message_text += f"👉 {top[0]['symbol']} ({top[0]['score']})\n" if top else "❌ ไม่มีจังหวะ\n"
 
 
 # ==============================
