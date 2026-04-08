@@ -1,314 +1,236 @@
 import yfinance as yf
+import pandas as pd
+import numpy as np
 import requests
 import os
 import time
-import math
+from sklearn.ensemble import RandomForestClassifier
+from flask import Flask, jsonify
 
 # ==============================
-# 🧠 sentiment จากข่าว
+# 🔥 CONFIG
 # ==============================
-def analyze_sentiment(news_list):
-    positive_words = ["surge","rise","growth","beat","strong","record","profit",
-        "upgrade","bullish","outperform","gain","positive"]
-    
-    negative_words = ["drop","fall","miss","weak","loss","fear","cut",
-        "downgrade","bearish","underperform","decline","negative"]
+portfolio = ["NVDA","GOOGL","AMZN","META","ASML","CVX","KO"]
 
-    score = 0
-
-    for news in news_list:
-        text = news.lower()
-        for word in positive_words:
-            if word in text:
-                score += 2
-        for word in negative_words:
-            if word in text:
-                score -= 2
-
-    sentiment = "📈 บวก" if score > 1 else "📉 ลบ" if score < -1 else "➖ กลาง"
-    return sentiment, score
-
-
-# ==============================
-# 📊 Indicators
-# ==============================
-def calculate_rsi(data, period=14):
-    delta = data["Close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi.iloc[-1]
-
-
-def calculate_macd(data):
-    ema12 = data["Close"].ewm(span=12).mean()
-    ema26 = data["Close"].ewm(span=26).mean()
-    macd = ema12 - ema26
-    signal = macd.ewm(span=9).mean()
-    return macd.iloc[-1], signal.iloc[-1]
-
-
-# ==============================
-# 📰 ข่าว
-# ==============================
-def get_news(symbol):
-    try:
-        stock = yf.Ticker(symbol)
-        news = stock.news
-        return [n["title"] for n in news[:5] if "title" in n]
-    except:
-        return []
-
-
-# ==============================
-# 🔥 ดึงข้อมูลแบบกันพัง (สำคัญมาก)
-# ==============================
-def get_data_safe(symbol):
-    for _ in range(5):
-        try:
-            stock = yf.Ticker(symbol)
-            data = stock.history(period="3mo", interval="1d")
-
-            if data is not None and not data.empty:
-                data = data.dropna()
-
-                if len(data) > 35:
-                    return data
-
-        except Exception as e:
-            print(f"{symbol} error: {e}")
-
-        time.sleep(2)
-
-    return None
-
-
-# ==============================
-# 🔑 ENV
-# ==============================
 TOKEN = os.getenv("LINE_TOKEN")
 USER_ID = os.getenv("LINE_USER_ID")
 
-if not TOKEN or not USER_ID:
-    raise ValueError("❌ TOKEN หรือ USER_ID ไม่มีค่า")
-
-
 # ==============================
-# 💼 PORT
+# 📊 DATA
 # ==============================
-portfolio = {
-    "NVDA": -1.95,
-    "JNJ": -2.45,
-    "GOOGL": -5.09,
-    "CVX": 16.56,
-    "SPYM": 2.78,
-    "JEPQ": 0.26,
-    "ASML": -2.88,
-    "AMZN": 3.79,
-    "META": -21.64,
-    "EOSE": -31.70,
-    "KO": -7.45
-}
-
-message_text = "📊 AI วิเคราะห์หุ้น (ELON BOT V2)\n\n"
-results = []
-
-market_bear = 0
-market_bull = 0
-
-
-# ==============================
-# 🔁 LOOP
-# ==============================
-for symbol, profit in portfolio.items():
+def get_data(symbol):
     try:
-        data = get_data_safe(symbol)
-
-        if data is None:
-            message_text += f"{symbol}: ❌ ดึงข้อมูลไม่ได้\n\n"
-            continue
-
-        # กัน NaN
-        if data["Close"].isna().all():
-            continue
-
-        today = data["Close"].iloc[-1]
-        yesterday = data["Close"].iloc[-2]
-
-        if any(math.isnan(x) for x in [today, yesterday]):
-            continue
-
-        percent = ((today - yesterday) / yesterday) * 100
-
-        rsi = calculate_rsi(data)
-        macd, macd_signal = calculate_macd(data)
-
-        if any(math.isnan(x) for x in [rsi, macd, macd_signal]):
-            continue
-
-        ema20 = data["Close"].ewm(span=20).mean().iloc[-1]
-        ema50 = data["Close"].ewm(span=50).mean().iloc[-1]
-        ma5 = data["Close"].rolling(5).mean().iloc[-1]
-
-        volume = data["Volume"].iloc[-1]
-        avg_volume = data["Volume"].rolling(20).mean().iloc[-1]
-
-        # ==============================
-        # FILTER หุ้น
-        # ==============================
-        if volume < avg_volume * 0.7 and abs(percent) < 2:
-            continue
-
-        # Trend
-        if ema20 > ema50 and today > ma5:
-            trend = "🚀 ขาขึ้นแรง"
-            market_bull += 1
-        elif ema20 < ema50 and today < ma5:
-            trend = "🔻 ขาลงแรง"
-            market_bear += 1
-        else:
-            trend = "📊 sideway"
-
-        # News
-        news_list = get_news(symbol)
-        sentiment, news_score = analyze_sentiment(news_list)
-
-        # Volume
-        if volume > avg_volume:
-            volume_signal = "💰 Volume เข้า"
-            volume_score = 1
-        else:
-            volume_signal = "💤 Volume ต่ำ"
-            volume_score = -1
-
-        # MACD
-        if macd > macd_signal:
-            macd_text = "📈 MACD Bullish"
-            macd_score = 2
-        else:
-            macd_text = "📉 MACD Bearish"
-            macd_score = -2
-
-        # Momentum
-        momentum_score = 2 if percent > 2 and macd > macd_signal else 0
-
-        # SCORE
-        total_score = 0
-
-        if percent > 3:
-            total_score += 2
-        elif percent > 1.5:
-            total_score += 1
-        elif percent < -3:
-            total_score -= 2
-
-        total_score += news_score + macd_score + volume_score + momentum_score
-
-        if trend == "🚀 ขาขึ้นแรง":
-            total_score += 1
-        elif trend == "🔻 ขาลงแรง":
-            total_score -= 1
-
-        # SIGNAL
-        if rsi < 25 and macd > macd_signal:
-            signal = "🔥 Strong Buy"
-        elif rsi > 75 and macd < macd_signal:
-            signal = "⚠️ Strong Sell"
-        elif total_score >= 3:
-            signal = "🔥 Buy"
-        elif total_score <= -4:
-            signal = "⚠️ Sell"
-        else:
-            signal = "➡️ Neutral"
-
-        # กันมั่ว
-        if trend == "🔻 ขาลงแรง" and "Buy" in signal:
-            signal = "➡️ Neutral"
-
-        if "Buy" in signal and volume < avg_volume:
-            signal = "➡️ Neutral"
-
-        # Entry
-        entry = "📍 เข้าได้" if "Buy" in signal else "⛔ ห้ามเข้า" if "Sell" in signal else "⏳ รอ"
-
-        # Confidence
-        confidence = int(min(max((abs(total_score) / 6) * 100, 20), 95))
-
-        # TRADE PLAN
-        atr = (data["High"] - data["Low"]).rolling(14).mean().iloc[-1]
-
-        if math.isnan(atr):
-            continue
-
-        entry_price = today
-        stop_loss = today - (atr * 1.3)
-        take_profit = today + (atr * 2.5)
-
-        rr = (take_profit - entry_price) / (entry_price - stop_loss) if (entry_price - stop_loss) != 0 else 0
-
-        # Position size
-        risk_per_trade = 0.02
-        position_size = (risk_per_trade / ((entry_price - stop_loss) / entry_price)) * 100
-        position_size = min(max(position_size, 5), 15)
-
-        trade_plan = f"""📍 {entry_price:.2f}
-🛑 {stop_loss:.2f}
-🎯 {take_profit:.2f}
-RR: {rr:.2f}
-💰 ลงทุน: {position_size:.1f}%"""
-
-        # OUTPUT
-        line = f"""{symbol}: {today:.2f} ({percent:+.2f}%)
-{sentiment} | {signal} ({total_score})
-🎯 {confidence}% | {trend}
-📊 {macd_text} | {volume_signal}
-{entry}
-
-{trade_plan}
-"""
-
-        message_text += line + "\n"
-        results.append({"symbol": symbol, "score": total_score})
-
-    except Exception as e:
-        message_text += f"{symbol}: error ({e})\n"
-
+        data = yf.Ticker(symbol).history(period="6mo", interval="1d")
+        data = data.dropna()
+        if len(data) > 50:
+            return data
+    except:
+        return None
+    return None
 
 # ==============================
-# 🌍 MARKET
+# 📊 INDICATORS
 # ==============================
-total = len(portfolio)
+def add_indicators(df):
+    df["Return"] = df["Close"].pct_change()
 
-if market_bear > total * 0.6:
-    message_text += "\n🚨 Bear Market\n"
-elif market_bull > total * 0.6:
-    message_text += "\n🚀 Bull Market\n"
-else:
-    message_text += "\n📊 Sideway Market\n"
+    df["EMA20"] = df["Close"].ewm(span=20).mean()
+    df["EMA50"] = df["Close"].ewm(span=50).mean()
 
+    df["MA5"] = df["Close"].rolling(5).mean()
+
+    delta = df["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    ema12 = df["Close"].ewm(span=12).mean()
+    ema26 = df["Close"].ewm(span=26).mean()
+    df["MACD"] = ema12 - ema26
+    df["MACD_signal"] = df["MACD"].ewm(span=9).mean()
+
+    df["Target"] = (df["Return"].shift(-1) > 0).astype(int)
+
+    return df.dropna()
 
 # ==============================
-# 🔥 BEST TRADE
+# 🤖 MACHINE LEARNING
 # ==============================
-top = sorted([r for r in results if r["score"] >= 2],
-             key=lambda x: x["score"], reverse=True)[:1]
+def train_ml(df):
+    features = df[["Return","RSI","MACD","Volume"]]
+    target = df["Target"]
 
-message_text += "\n🔥 BEST TRADE:\n"
-message_text += f"👉 {top[0]['symbol']} ({top[0]['score']})\n" if top else "❌ ไม่มีจังหวะ\n"
+    model = RandomForestClassifier(n_estimators=100)
+    model.fit(features, target)
 
+    return model
+
+# ==============================
+# 💰 BACKTEST
+# ==============================
+def backtest(df):
+    capital = 10000
+    position = 0
+
+    for i in range(50, len(df)):
+        row = df.iloc[i]
+
+        # momentum strategy
+        if row["EMA20"] > row["EMA50"] and row["MACD"] > row["MACD_signal"]:
+            if position == 0:
+                position = capital / row["Close"]
+                capital = 0
+        else:
+            if position > 0:
+                capital = position * row["Close"]
+                position = 0
+
+    return capital
+
+# ==============================
+# 🚀 ANALYZE
+# ==============================
+def analyze_stock(symbol):
+    data = get_data(symbol)
+    if data is None:
+        return None
+
+    df = add_indicators(data)
+
+    model = train_ml(df)
+
+    latest = df.iloc[-1]
+
+    percent = latest["Return"] * 100
+
+    # 🔥 Momentum Boost (แก้ conservative)
+    score = 0
+
+    if percent > 2:
+        score += 2
+    if percent > 4:
+        score += 2
+
+    if latest["MACD"] > latest["MACD_signal"]:
+        score += 2
+
+    if latest["EMA20"] > latest["EMA50"]:
+        score += 1
+
+    # 🤖 ML
+    pred = model.predict([[latest["Return"], latest["RSI"], latest["MACD"], latest["Volume"]]])[0]
+
+    if pred == 1:
+        score += 3
+        ml_text = "📈 ML ขึ้น"
+    else:
+        score -= 2
+        ml_text = "📉 ML ลง"
+
+    # 🎯 SIGNAL
+    if score >= 5:
+        signal = "🔥 STRONG BUY"
+    elif score >= 3:
+        signal = "🔥 BUY"
+    elif score <= -3:
+        signal = "⚠️ SELL"
+    else:
+        signal = "➡️ WAIT"
+
+    # 💰 BACKTEST
+    bt = backtest(df)
+
+    return {
+        "symbol": symbol,
+        "price": round(latest["Close"],2),
+        "percent": round(percent,2),
+        "score": score,
+        "signal": signal,
+        "ml": ml_text,
+        "backtest": round(bt,2)
+    }
+
+# ==============================
+# 🎯 AI เลือก 1 ตัว
+# ==============================
+def pick_best(results):
+    results = [r for r in results if r is not None]
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+
+    if not results:
+        return None
+
+    top = results[0]
+
+    if top["score"] >= 4:
+        return top
+
+    return None
 
 # ==============================
 # 📩 LINE
 # ==============================
-url = "https://api.line.me/v2/bot/message/push"
-headers = {
-    "Authorization": f"Bearer {TOKEN}",
-    "Content-Type": "application/json"
-}
-data = {
-    "to": USER_ID,
-    "messages": [{"type": "text", "text": message_text[:4500]}]
-}
+def send_line(text):
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "to": USER_ID,
+        "messages": [{"type": "text", "text": text}]
+    }
+    requests.post(url, headers=headers, json=data)
 
-requests.post(url, headers=headers, json=data)
+# ==============================
+# 🧠 MAIN BOT
+# ==============================
+def run_bot():
+    results = []
+
+    text = "📊 ELON BOT V3 (AI TRADING)\n\n"
+
+    for s in portfolio:
+        r = analyze_stock(s)
+        if r:
+            results.append(r)
+
+            text += f"""{r['symbol']} {r['price']} ({r['percent']}%)
+{r['signal']} | {r['ml']}
+Score: {r['score']}
+Backtest: {r['backtest']}
+
+"""
+
+    best = pick_best(results)
+
+    text += "\n🚀 FINAL DECISION:\n"
+
+    if best:
+        text += f"🔥 เข้า: {best['symbol']} ({best['score']})"
+    else:
+        text += "❌ ไม่ควรเข้า"
+
+    send_line(text)
+
+    return results, best
+
+# ==============================
+# 🌐 WEB DASHBOARD
+# ==============================
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    results, best = run_bot()
+    return jsonify({
+        "stocks": results,
+        "best": best
+    })
+
+# ==============================
+# 🚀 RUN
+# ==============================
+if __name__ == "__main__":
+    app.run(port=5000)
