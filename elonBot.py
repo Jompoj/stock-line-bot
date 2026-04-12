@@ -3,9 +3,8 @@ import pandas as pd
 import numpy as np
 import requests
 import os
-import time
 from sklearn.ensemble import RandomForestClassifier
-from flask import Flask, jsonify
+from sklearn.model_selection import train_test_split
 
 # ==============================
 # 🔥 CONFIG
@@ -20,9 +19,9 @@ USER_ID = os.getenv("LINE_USER_ID")
 # ==============================
 def get_data(symbol):
     try:
-        data = yf.Ticker(symbol).history(period="6mo", interval="1d")
+        data = yf.Ticker(symbol).history(period="1y", interval="1d")
         data = data.dropna()
-        if len(data) > 50:
+        if len(data) > 100:
             return data
     except:
         return None
@@ -37,8 +36,6 @@ def add_indicators(df):
     df["EMA20"] = df["Close"].ewm(span=20).mean()
     df["EMA50"] = df["Close"].ewm(span=50).mean()
 
-    df["MA5"] = df["Close"].rolling(5).mean()
-
     delta = df["Close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -50,41 +47,61 @@ def add_indicators(df):
     df["MACD"] = ema12 - ema26
     df["MACD_signal"] = df["MACD"].ewm(span=9).mean()
 
+    df["VolumeAvg"] = df["Volume"].rolling(20).mean()
+
     df["Target"] = (df["Return"].shift(-1) > 0).astype(int)
 
     return df.dropna()
 
 # ==============================
-# 🤖 MACHINE LEARNING
+# 🤖 MACHINE LEARNING (จริงขึ้น)
 # ==============================
 def train_ml(df):
     features = df[["Return","RSI","MACD","Volume"]]
     target = df["Target"]
 
-    model = RandomForestClassifier(n_estimators=100)
-    model.fit(features, target)
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, target, test_size=0.2, shuffle=False
+    )
 
-    return model
+    model = RandomForestClassifier(n_estimators=200, max_depth=6)
+    model.fit(X_train, y_train)
+
+    acc = model.score(X_test, y_test)
+
+    return model, acc
 
 # ==============================
-# 💰 BACKTEST
+# 💰 BACKTEST (สมจริงขึ้น)
 # ==============================
 def backtest(df):
     capital = 10000
     position = 0
 
-    for i in range(50, len(df)):
+    for i in range(30, len(df)):
         row = df.iloc[i]
 
-        # momentum strategy
-        if row["EMA20"] > row["EMA50"] and row["MACD"] > row["MACD_signal"]:
-            if position == 0:
-                position = capital / row["Close"]
-                capital = 0
-        else:
-            if position > 0:
-                capital = position * row["Close"]
-                position = 0
+        buy_signal = (
+            row["EMA20"] > row["EMA50"]
+            and row["MACD"] > row["MACD_signal"]
+            and row["RSI"] < 70
+        )
+
+        sell_signal = (
+            row["MACD"] < row["MACD_signal"]
+            or row["RSI"] > 75
+        )
+
+        if buy_signal and position == 0:
+            position = capital / row["Close"]
+            capital = 0
+
+        elif sell_signal and position > 0:
+            capital = position * row["Close"]
+            position = 0
+
+    if position > 0:
+        capital = position * df.iloc[-1]["Close"]
 
     return capital
 
@@ -98,67 +115,49 @@ def analyze_stock(symbol):
 
     df = add_indicators(data)
 
-    model = train_ml(df)
+    model, acc = train_ml(df)
 
     latest = df.iloc[-1]
 
     percent = latest["Return"] * 100
 
-    avg_volume = df["Volume"].rolling(20).mean().iloc[-1]
-
     # ==============================
-    # 🔥 SMART SCORE SYSTEM (แม่นขึ้น)
+    # 🔥 SCORE SYSTEM (ฉลาดขึ้น)
     # ==============================
     score = 0
 
-    # ✅ Momentum (หลัก)
-    momentum_ok = percent > 2 and latest["MACD"] > latest["MACD_signal"]
-    if momentum_ok:
+    momentum = percent > 2 and latest["MACD"] > latest["MACD_signal"]
+    trend = latest["EMA20"] > latest["EMA50"]
+    volume_ok = latest["Volume"] > latest["VolumeAvg"] * 0.8
+
+    if momentum:
         score += 3
-
-    if percent > 4:
-        score += 1
-
-    # ✅ Trend confirmation
-    trend_ok = latest["EMA20"] > latest["EMA50"]
-    if trend_ok:
-        score += 1
-
-    # ✅ Volume (ไม่ strict เกิน)
-    volume_ok = latest["Volume"] > avg_volume * 0.8
+    if trend:
+        score += 2
     if volume_ok:
         score += 1
 
-    # ❌ กันหุ้นพุ่งแรงเกิน (ไม่ไล่ราคา)
-    if percent > 8:
-        return {
-            "symbol": symbol,
-            "price": round(latest["Close"],2),
-            "percent": round(percent,2),
-            "score": score,
-            "signal": "⚠️ Overextended",
-            "ml": "-",
-            "backtest": 0
-        }
-
     # ==============================
-    # 🤖 MACHINE LEARNING (ลดอิทธิพล)
+    # 🤖 ML (ใช้จริงขึ้น)
     # ==============================
     pred = model.predict([[latest["Return"], latest["RSI"], latest["MACD"], latest["Volume"]]])[0]
 
-    if pred == 1:
-        score += 1.5   # ลดจาก 3 → 1.5
-        ml_text = "📈 ML ขึ้น"
+    if acc > 0.55:  # ใช้เฉพาะ model ที่พอเชื่อถือได้
+        if pred == 1:
+            score += 2
+            ml_text = f"📈 ML ขึ้น ({acc:.2f})"
+        else:
+            score -= 2
+            ml_text = f"📉 ML ลง ({acc:.2f})"
     else:
-        score -= 1
-        ml_text = "📉 ML ลง"
+        ml_text = f"⚠️ ML ไม่น่าเชื่อ ({acc:.2f})"
 
     # ==============================
-    # 🎯 FINAL SIGNAL (ฉลาดขึ้น)
+    # 🎯 SIGNAL
     # ==============================
-    if score >= 5 and momentum_ok and trend_ok:
+    if score >= 6:
         signal = "🔥 STRONG BUY"
-    elif score >= 4 and momentum_ok:
+    elif score >= 4:
         signal = "🔥 BUY"
     elif score <= -3:
         signal = "⚠️ SELL"
@@ -174,36 +173,26 @@ def analyze_stock(symbol):
         "symbol": symbol,
         "price": round(latest["Close"],2),
         "percent": round(percent,2),
-        "score": round(score,2),
+        "score": score,
         "signal": signal,
         "ml": ml_text,
         "backtest": round(bt,2)
     }
 
 # ==============================
-# 🎯 AI เลือก 1 ตัว
+# 🎯 PICK BEST
 # ==============================
 def pick_best(results):
-    results = [r for r in results if r is not None]
-
-    # เอาเฉพาะตัวที่ "ควรเข้า"
     candidates = [r for r in results if "BUY" in r["signal"]]
 
     if not candidates:
         return None
 
-    # เรียงตาม score + backtest
     candidates = sorted(candidates,
                         key=lambda x: (x["score"], x["backtest"]),
                         reverse=True)
 
-    best = candidates[0]
-
-    # ต้องผ่านขั้นต่ำจริง
-    if best["score"] >= 4:
-        return best
-
-    return None
+    return candidates[0]
 
 # ==============================
 # 📩 LINE
@@ -221,12 +210,12 @@ def send_line(text):
     requests.post(url, headers=headers, json=data)
 
 # ==============================
-# 🧠 MAIN BOT
+# 🧠 MAIN
 # ==============================
 def run_bot():
     results = []
 
-    text = "📊 ELON BOT V3 (AI TRADING)\n\n"
+    text = "📊 ELON BOT V4 (SMART AI)\n\n"
 
     for s in portfolio:
         r = analyze_stock(s)
@@ -251,23 +240,8 @@ Backtest: {r['backtest']}
 
     send_line(text)
 
-    return results, best
-
-# ==============================
-# 🌐 WEB DASHBOARD
-# ==============================
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    results, best = run_bot()
-    return jsonify({
-        "stocks": results,
-        "best": best
-    })
-
 # ==============================
 # 🚀 RUN
 # ==============================
 if __name__ == "__main__":
-    run_bot() 
+    run_bot()
