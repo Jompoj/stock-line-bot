@@ -194,13 +194,25 @@ Backtest: {r['backtest']}
 
 """
 
-    best = sorted(results, key=lambda x: (x["score"], x["confidence"]), reverse=True)[0]
+    # ❌ กันพังถ้าไม่มีข้อมูล
+    if not results:
+        text += "\n❌ ไม่มีข้อมูลหุ้น"
+    else:
+        best = sorted(results, key=lambda x: (x["score"], x["confidence"]), reverse=True)[0]
 
-    text += "\n🚀 FINAL DECISION:\n"
+        text += "\n🚀 FINAL DECISION:\n"
 
-    if best["confidence"] >= 60:
-        text += f"🔥 เข้า: {best['symbol']} ({best['confidence']}%)"
-        requests.post(
+        # 🔥 แสดงสถานะ (แต่ส่งเสมอ)
+        if best["confidence"] >= 60:
+            text += f"🔥 เข้า: {best['symbol']} ({best['confidence']}%)"
+        else:
+            text += f"⏳ รอ: {best['symbol']} ({best['confidence']}%)"
+
+    # =========================
+    # 📩 ส่ง LINE (ส่งทุกครั้ง)
+    # =========================
+    try:
+        res = requests.post(
             "https://api.line.me/v2/bot/message/push",
             headers={
                 "Authorization": f"Bearer {TOKEN}",
@@ -208,13 +220,17 @@ Backtest: {r['backtest']}
             },
             json={
                 "to": USER_ID,
-                "messages": [{"type": "text", "text": text}]
+                "messages": [{"type": "text", "text": text[:4500]}]
             }
         )
-    else:
-        text += "❌ ยังไม่ควรเข้า (ความมั่นใจต่ำ)"
 
-    return results, best
+        print("LINE STATUS:", res.status_code)
+        print("LINE RESPONSE:", res.text)
+
+    except Exception as e:
+        print("LINE ERROR:", e)
+
+    return results, best if results else None
 
 # =========================
 # 🌐 DASHBOARD
